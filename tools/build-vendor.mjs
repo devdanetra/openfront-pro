@@ -1,4 +1,4 @@
-// Rebuilds src/vendor/nostr-crypto.js: BIP-340 Schnorr (secp256k1) + SHA-256 from
+// Rebuilds src/vendor/nostr-crypto.js: BIP-340 Schnorr + ECDH (secp256k1) + SHA-256 from
 // @noble/curves and @noble/hashes (MIT, audited, no dependencies), bundled (NOT minified, so it can be read and diffed) into
 // one classic script that sets globalThis.OFR_NOSTR_CRYPTO. Nothing else is
 // vendored, and nothing is fetched at run time.
@@ -21,10 +21,14 @@ fs.mkdirSync(WORK, { recursive: true });
 fs.writeFileSync(path.join(WORK, "package.json"), JSON.stringify({ name: "ofr-vendor-build", private: true, type: "module" }));
 fs.writeFileSync(
   path.join(WORK, "entry.js"),
-  `import { schnorr } from "@noble/curves/secp256k1";
+  `import { schnorr, secp256k1 } from "@noble/curves/secp256k1";
 import { sha256 } from "@noble/hashes/sha2";
 import { bytesToHex, hexToBytes, utf8ToBytes, randomBytes } from "@noble/hashes/utils";
-globalThis.OFR_NOSTR_CRYPTO = { schnorr, sha256, bytesToHex, hexToBytes, utf8ToBytes, randomBytes };
+// ecdh: x coordinate of (secret key * public point), for the team chat's key wrapping.
+// A BIP-340 public key is an x coordinate only; "02" + x is the point with even y, and
+// the x of the product is the same for either y, so the choice does not matter.
+const ecdh = (secretKeyHex, xOnlyPublicKeyHex) => secp256k1.getSharedSecret(secretKeyHex, "02" + xOnlyPublicKeyHex).slice(1, 33);
+globalThis.OFR_NOSTR_CRYPTO = { schnorr, sha256, bytesToHex, hexToBytes, utf8ToBytes, randomBytes, ecdh };
 `,
 );
 execSync("npm install --no-audit --no-fund --ignore-scripts @noble/curves@1.9.7 @noble/hashes@1.8.0 esbuild-wasm@0.25.10", { cwd: WORK, stdio: "inherit" });

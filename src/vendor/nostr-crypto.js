@@ -2432,5 +2432,6 @@
   })();
 
   // entry.js
-  globalThis.OFR_NOSTR_CRYPTO = { schnorr, sha256, bytesToHex, hexToBytes, utf8ToBytes, randomBytes };
+  var ecdh2 = (secretKeyHex, xOnlyPublicKeyHex) => secp256k1.getSharedSecret(secretKeyHex, "02" + xOnlyPublicKeyHex).slice(1, 33);
+  globalThis.OFR_NOSTR_CRYPTO = { schnorr, sha256, bytesToHex, hexToBytes, utf8ToBytes, randomBytes, ecdh: ecdh2 };
 })();

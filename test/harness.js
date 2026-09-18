@@ -42,7 +42,7 @@ window.chrome = {
 };
 // Same load order as the manifest: shared modules first, content.js last.
 (async () => {
-  for (const file of ["themes.js", "scoring.js", "map-viewer.js", "charts.js", "dashboard.js", "recap.js", "chat.js", "content.js"]) {
+  for (const file of ["themes.js", "scoring.js", "map-viewer.js", "charts.js", "dashboard.js", "timelapse.js", "recap.js", "chat.js", "content.js"]) {
     await new Promise((resolve, reject) => {
       const s = document.createElement("script");
       s.src = `../src/${file}`;

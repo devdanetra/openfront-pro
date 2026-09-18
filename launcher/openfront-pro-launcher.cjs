@@ -262,7 +262,7 @@ const PAGE_SHIM = `(() => {
       getURL: (p) => location.origin + base + "/" + String(p).replace(/^\\//, ""),
       sendMessage: (msg) => api("message", { msg }),
     },
-    storage: { sync: area("sync"), local: area("local"), session: area("session"), onChanged: { addListener: (f) => changed.push(f) } },
+    storage: { sync: area("sync"), local: area("local"), onChanged: { addListener: (f) => changed.push(f) } },
     tabs: { query: async () => [], create: async ({ url }) => void window.open(url, "_blank", "noopener") },
     permissions: { contains: async () => true, request: async () => true },
   };
@@ -326,7 +326,9 @@ function serve(req, res) {
       let value = null;
       try {
         const m = JSON.parse(body || "{}");
-        const area = ["sync", "local", "session"].includes(m.area) ? m.area : "local";
+        // chrome.storage.session holds the chat signing keys: the worker's alone, as in Chrome
+        if (m.area === "session") throw new Error("session storage is not available to pages");
+        const area = ["sync", "local"].includes(m.area) ? m.area : "local";
         if (m.op === "storage.get") value = storageGet(area, m.keys);
         else if (m.op === "storage.set") storageSet(area, m.items);
         else if (m.op === "storage.remove") storageRemove(area, m.keys);
@@ -366,6 +368,7 @@ server.on("clientError", (_err, socket) => socket.destroy());
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 httpBase = `http://127.0.0.1:${server.address().port}/${TOKEN}`;
 storageListeners.add((changes, area) => {
+  if (area === "session") return; // the worker's alone (chat signing keys)
   const line = `data: ${JSON.stringify({ area, changes })}\n\n`;
   for (const res of sseClients) res.write(line);
 });
@@ -461,12 +464,25 @@ if (!globalThis.__ofrLauncher) {
   const ports = new Map();
   const send = (o) => {
     try {
+      if (typeof globalThis.__ofrSend !== "function") return false;
       globalThis.__ofrSend(JSON.stringify(o));
+      return true;
     } catch {
-      // the launcher is not attached right now; it re-attaches by itself
+      return false; // the launcher is not attached right now; it re-attaches by itself
     }
   };
-  const call = (kind, payload) => new Promise((resolve) => { const id = ++seq; pending.set(id, resolve); send({ id, kind, ...payload }); });
+  // A call fails at once when the launcher is not there, and a storage call after
+  // 10 s without an answer (the launcher was closed): nothing waits forever.
+  const call = (kind, payload) =>
+    new Promise((resolve, reject) => {
+      const id = ++seq;
+      pending.set(id, resolve);
+      if (!send({ id, kind, ...payload })) {
+        pending.delete(id);
+        return reject(new Error("the launcher is not running"));
+      }
+      if (kind.startsWith("storage.")) setTimeout(() => pending.delete(id) && reject(new Error("the launcher did not answer")), 10000);
+    });
   globalThis.__ofrReceive = (m) => {
     if (m.kind === "reply") { const r = pending.get(m.id); pending.delete(m.id); r?.(m.value); }
     else if (m.kind === "storage-changed") { for (const f of changed) { try { f(m.changes, m.area); } catch {} } }
@@ -502,7 +518,7 @@ if (!globalThis.__ofrLauncher) {
         };
       },
     },
-    storage: { sync: area("sync"), local: area("local"), session: area("session"), onChanged: { addListener: (f) => changed.push(f) } },
+    storage: { sync: area("sync"), local: area("local"), onChanged: { addListener: (f) => changed.push(f) } },
   };
   globalThis.__ofrCss = ${JSON.stringify("CSSTEXT")};
 }
@@ -512,6 +528,61 @@ function isolatedSource() {
   const body = scripts.map((f) => `try {\n${text(f)}\n} catch (err) { console.error("[OpenFront Pro launcher] ${f}:", err); }`).join("\n");
   const shim = WORLD_SHIM.replace(JSON.stringify("CSSTEXT"), JSON.stringify(cssText));
   const sound = `data:audio/wav;base64,${asset("sounds/alert.wav").toString("base64")}`;
+  // Settings INSIDE the game window: popup.html's markup and popup.js's code, in a
+  // closed shadow root (the page's own scripts cannot look inside). popup.js reads
+  // its root from __ofrSettingsRoot, so it is the very same code as the extension's.
+  const popupHtml = text("src/popup.html");
+  const popupStyle = [...popupHtml.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n")
+    .replace(/(^|[\s,}])body(\s*\{)/g, "$1.ofr-settings-body$2")
+    .replace(/html\.embedded\s+\.ofr-settings-body/g, ".ofr-settings-body");
+  const popupBody = (/<body>([\s\S]*?)<\/body>/.exec(popupHtml)?.[1] ?? "")
+    .replace(/<script[\s\S]*?<\/script>/g, "")
+    // relative to the extension page; in the game window it has to be self-contained
+    .replace('src="../icons/icon48.png"', `src="data:image/png;base64,${asset("icons/icon48.png").toString("base64")}"`);
+  const settingsSource = `
+  globalThis.__ofrMountSettings = (root) => {
+    globalThis.__ofrSettingsRoot = root;
+    ${text("src/popup.js")}
+  };
+  globalThis.__ofrOpenSettingsInPage = () => {
+    document.querySelector(".ofr-settings")?.remove();
+    const overlay = document.createElement("div");
+    overlay.className = "ofr-settings";
+    const box = document.createElement("div");
+    box.className = "ofr-settings-box";
+    const head = document.createElement("div");
+    head.className = "ofr-settings-head";
+    const title = document.createElement("span");
+    title.textContent = "OpenFront Pro settings";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "\u2715";
+    head.append(title, close);
+    const host = document.createElement("div");
+    host.style.cssText = "flex:1;min-height:0;overflow:auto";
+    box.append(head, host);
+    overlay.append(box);
+    const shut = () => { overlay.remove(); document.removeEventListener("keydown", onKey, true); };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); shut(); } };
+    close.addEventListener("click", shut);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) shut(); });
+    document.addEventListener("keydown", onKey, true);
+    // typing in here must not reach the game's hotkeys
+    for (const type of ["keydown", "keyup", "keypress"]) host.addEventListener(type, (e) => { if (e.key !== "Escape") e.stopPropagation(); });
+    const shadow = host.attachShadow({ mode: "closed" });
+    const css = document.createElement("style");
+    css.textContent = globalThis.__ofrCss + "\\n" + ${JSON.stringify("POPUPSTYLE")} + "\\n.ofr-settings-body{width:auto!important;box-sizing:border-box;min-height:100%}";
+    const body = document.createElement("div");
+    body.className = "ofr-settings-body";
+    // our own packaged markup (src/popup.html), parsed inertly and adopted
+    const parsed = new DOMParser().parseFromString(${JSON.stringify("POPUPBODY")}, "text/html");
+    body.append(...[...parsed.body.childNodes].map((n) => document.importNode(n, true)));
+    shadow.append(css, body);
+    globalThis.__ofrSettingsShadow = shadow; // isolated world only; lets the bridge test look inside
+    document.body.appendChild(overlay);
+    globalThis.__ofrRemountSettings = () => { shut(); globalThis.__ofrOpenSettingsInPage(); };
+    try { globalThis.__ofrMountSettings(shadow); } catch (err) { console.error("[OpenFront Pro launcher] settings:", err); }
+  };`.replace(JSON.stringify("POPUPSTYLE"), JSON.stringify(popupStyle)).replace(JSON.stringify("POPUPBODY"), JSON.stringify(`<body>${popupBody}</body>`));
   return `(() => {
   // the game page only: not the splash, the login gate or the tutorial player
   if (!location.href.startsWith(${JSON.stringify(GAME_PREFIX)}) || location.pathname.startsWith("/__")) return;
@@ -527,6 +598,8 @@ function isolatedSource() {
     style.textContent = globalThis.__ofrCss;
     (document.head ?? document.documentElement).appendChild(style);
     ${body}
+    try {${settingsSource}
+    } catch (err) { console.error("[OpenFront Pro launcher] settings setup:", err); }
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(run, 50), { once: true });
   else run();
@@ -534,8 +607,7 @@ function isolatedSource() {
 }
 function mainWorldSource() {
   return `(() => {
-  if (!location.href.startsWith(${JSON.stringify(GAME_PREFIX)}) || location.pathname.startsWith("/__") || window.__ofrProbeInjected) return;
-  window.__ofrProbeInjected = true;
+  if (!location.href.startsWith(${JSON.stringify(GAME_PREFIX)}) || location.pathname.startsWith("/__")) return; // the probe guards against itself, by version
   const run = () => { ${text("src/page-probe.js")} };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(run, 50), { once: true });
   else run();
@@ -578,7 +650,7 @@ async function attach(target) {
     }
     ports.clear();
   };
-  const onStorage = (changes, area) => toPage({ kind: "storage-changed", area, changes });
+  const onStorage = (changes, area) => area !== "session" && toPage({ kind: "storage-changed", area, changes }); // session: the worker's alone
   storageListeners.add(onStorage);
 
   async function fromPage(payload, ctx) {
@@ -589,7 +661,8 @@ async function attach(target) {
       return;
     }
     if (!m || typeof m !== "object") return;
-    const area = ["sync", "local", "session"].includes(m.area) ? m.area : "local";
+    if (typeof m.kind === "string" && m.kind.startsWith("storage.") && m.area === "session") return toPage({ kind: "reply", id: m.id, value: m.kind === "storage.get" ? {} : undefined }, ctx); // the worker's alone
+    const area = ["sync", "local"].includes(m.area) ? m.area : "local";
     if (m.kind === "storage.get") toPage({ kind: "reply", id: m.id, value: storageGet(area, m.keys) }, ctx);
     else if (m.kind === "storage.set") { storageSet(area, m.items); toPage({ kind: "reply", id: m.id }, ctx); }
     else if (m.kind === "storage.remove") { storageRemove(area, m.keys); toPage({ kind: "reply", id: m.id }, ctx); }

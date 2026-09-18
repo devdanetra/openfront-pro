@@ -1,6 +1,7 @@
 // Minimal Nostr client for the game chat: just enough of NIP-01 to publish and
-// receive EPHEMERAL events (kinds 20000-29999: relays forward them to whoever is
-// subscribed and store nothing) on a handful of public relays.
+// receive EPHEMERAL events (kinds 20000-29999: relays are meant to forward them to
+// whoever is subscribed and store nothing - nobody can guarantee that) on a
+// handful of public relays.
 //
 // Why Nostr: a chat needs a meeting point, and this extension has no server.
 // Public relays are that meeting point - third-party, free, no account, and the
@@ -19,6 +20,9 @@
   const MAX_TEXT = 280;
   const MAX_NAME = 32;
   const MAX_SKEW = 120; // seconds a message's clock may differ from ours
+  const MAX_BODY = 4096; // team-chat events carry a JSON body instead of text (team.js)
+  const CHAT_TYPES = new Set(["msg", "here", "bye"]);
+  const TEAM_TYPES = new Set(["t-hello", "t-init", "t-resp", "t-open", "t-msg"]);
 
   const hex = (bytes) => C.bytesToHex(bytes);
   const sha256hex = (text) => hex(C.sha256(C.utf8ToBytes(text)));
@@ -39,19 +43,22 @@
     return sha256hex(JSON.stringify([0, ev.pubkey, ev.created_at, ev.kind, ev.tags, ev.content]));
   }
 
-  function makeEvent(secretKey, { room, type, text = "", name = "" }) {
+  function makeEvent(secretKey, { room, type, text = "", name = "", body = null }) {
     const now = Math.floor(Date.now() / 1000);
+    const team = TEAM_TYPES.has(type);
+    const content = team ? JSON.stringify(body ?? {}) : String(text).slice(0, MAX_TEXT);
+    if (team && content.length > MAX_BODY) throw new Error("team event body too large");
     const ev = {
       pubkey: publicKeyOf(secretKey),
       created_at: now,
       kind: KIND,
       tags: [
         ["t", room],
-        ["x", type], // "msg" | "here" | "bye"
-        ["name", String(name).slice(0, MAX_NAME)],
+        ["x", type], // "msg" | "here" | "bye" | "t-..." (team chat)
+        ["name", team ? "" : String(name).slice(0, MAX_NAME)], // team events never carry a name: those come from the game
         ["expiration", String(now + 300)], // NIP-40, for relays that would keep it anyway
       ],
-      content: String(text).slice(0, MAX_TEXT),
+      content,
     };
     ev.id = eventId(ev);
     ev.sig = hex(C.schnorr.sign(ev.id, secretKey));
@@ -67,7 +74,7 @@
       if (typeof ev.sig !== "string" || !/^[0-9a-f]{128}$/.test(ev.sig)) return null;
       if (typeof ev.id !== "string" || typeof ev.content !== "string" || !Array.isArray(ev.tags)) return null;
       if (!Number.isInteger(ev.created_at)) return null;
-      if (ev.content.length > MAX_TEXT * 2 || ev.tags.length > 12) return null;
+      if (ev.content.length > MAX_BODY || ev.tags.length > 12) return null;
       if (Math.abs(ev.created_at - Date.now() / 1000) > MAX_SKEW) return null;
       const tag = (k) => {
         const t = ev.tags.find((x) => Array.isArray(x) && x[0] === k);
@@ -75,9 +82,16 @@
       };
       if (tag("t") !== room) return null;
       const type = tag("x");
-      if (type !== "msg" && type !== "here" && type !== "bye") return null;
+      const team = TEAM_TYPES.has(type);
+      if (!team && !CHAT_TYPES.has(type)) return null;
+      if (!team && ev.content.length > MAX_TEXT * 2) return null;
       if (eventId(ev) !== ev.id) return null;
       if (!C.schnorr.verify(ev.sig, ev.id, ev.pubkey)) return null;
+      if (team) {
+        const body = JSON.parse(ev.content);
+        if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+        return { id: ev.id, pubkey: ev.pubkey, at: ev.created_at * 1000, type, body };
+      }
       return {
         id: ev.id,
         pubkey: ev.pubkey,
@@ -171,9 +185,9 @@
       this.onStatus({ open, total: this.relays.length, notices: Object.fromEntries([...this.sockets].filter(([, s]) => s.notice).map(([u, s]) => [u, s.notice])) });
     }
 
-    // Returns how many relays took it.
-    publish(type, text, name) {
-      const ev = makeEvent(this.secretKey, { room: this.room, type, text, name });
+    // Returns how many relays took it. `body` is for team events (see TEAM_TYPES).
+    publish(type, text, name, body = null) {
+      const ev = makeEvent(this.secretKey, { room: this.room, type, text, name, body });
       this.remember(ev.id); // our own echo is not news
       let sent = 0;
       for (const state of this.sockets.values()) {
@@ -202,5 +216,5 @@
     }
   }
 
-  globalThis.OFR_NOSTR = { KIND, MAX_TEXT, MAX_NAME, roomOf, newSecretKey, publicKeyOf, eventId, makeEvent, readEvent, Room };
+  globalThis.OFR_NOSTR = { KIND, MAX_TEXT, MAX_NAME, MAX_BODY, TEAM_TYPES, roomOf, newSecretKey, publicKeyOf, eventId, makeEvent, readEvent, Room };
 })();

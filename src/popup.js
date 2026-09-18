@@ -14,9 +14,11 @@ const KEYS = [
   "streamerMode",
   "autoCopyReport",
   "themeSite",
+  "timelapse",
   "chatEnabled",
   "chatInFfa",
   "chatFilter",
+  "chatTeam",
 ];
 // <select> settings, saved by value rather than checked state.
 const CHOICES = {
@@ -25,8 +27,15 @@ const CHOICES = {
   uiSize: "medium",
   siteLayout: "default",
 };
+// Where these settings are drawn: the popup's own document, or - in the Steam
+// companion launcher, where there are no extension pages - a shadow root inside
+// the game window (launcher sets __ofrSettingsRoot before running this file).
+const ROOT = globalThis.__ofrSettingsRoot ?? document;
+const IN_PAGE = ROOT !== document;
+const byId = (id) => ROOT.getElementById(id);
+
 // Shown inside the page as the settings overlay (an iframe): fill its width.
-if (window.top !== window) document.documentElement.classList.add("embedded");
+if (!IN_PAGE && window.top !== window) document.documentElement.classList.add("embedded");
 const DEFAULTS = {
   enabled: true,
   showGames: true,
@@ -43,20 +52,25 @@ const DEFAULTS = {
   streamerMode: false,
   autoCopyReport: false,
   themeSite: true,
+  timelapse: true,
   chatEnabled: false,
   chatInFfa: false,
   chatFilter: true,
+  chatTeam: true,
 };
 
 // Switches that need more than a tick.
-const EMBEDDED = window.top !== window;
+// EMBEDDED: this page is inside a web page - framed on openfront.io, or mounted
+// into the Steam build's game window by the companion launcher (IN_PAGE). A script
+// on that page could cover it and steer a real click onto a switch, so what talks
+// to third parties is never switched ON from here. Off always works.
+const EMBEDDED = IN_PAGE || window.top !== window;
 const GUARDED = {
   // Chat talks to third parties and is public: it turns on only after an explicit
-  // "I agree" to what that means, and never from the in-page settings overlay - a
-  // page script could frame that and trick a click onto it.
+  // "I agree" to what that means, and never from an embedded copy of this page.
   chatEnabled(input) {
-    const box = document.getElementById("chat-consent");
-    if (EMBEDDED) return lock(input, "chatEnabled-lock");
+    const box = byId("chat-consent");
+    if (EMBEDDED) return offOnly(input, "chatEnabled", "chatEnabled-lock");
     input.addEventListener("change", async () => {
       if (!input.checked) {
         box.hidden = true;
@@ -68,26 +82,30 @@ const GUARDED = {
       input.checked = false;
       box.hidden = false;
     });
-    document.getElementById("chat-agree").addEventListener("click", async () => {
+    byId("chat-agree").addEventListener("click", async (e) => {
+      if (!e.isTrusted) return; // a person agreed, not a script
       await chrome.storage.sync.set({ chatConsent: true, chatEnabled: true });
       input.checked = true;
       box.hidden = true;
     });
-    document.getElementById("chat-cancel").addEventListener("click", () => (box.hidden = true));
+    byId("chat-cancel").addEventListener("click", () => (box.hidden = true));
   },
   chatInFfa(input) {
-    if (EMBEDDED) return lock(input, "chatEnabled-lock");
+    if (EMBEDDED) return offOnly(input, "chatInFfa", "chatEnabled-lock");
     input.addEventListener("change", () => chrome.storage.sync.set({ chatInFfa: input.checked }));
   },
   // Writing to the clipboard without a click needs a permission; it is asked for
   // here, when the feature is switched on, instead of at install.
   autoCopyReport(input) {
-    if (EMBEDDED) return lock(input, "autoCopy-lock");
+    // The launcher's game window writes to the clipboard without a permission;
+    // only a framed copy on openfront.io has to leave this to the toolbar popup.
+    if (EMBEDDED && !IN_PAGE) return lock(input, "autoCopy-lock");
     input.addEventListener("change", async () => {
       if (input.checked) {
         let granted = false;
         try {
-          granted = await chrome.permissions.request({ permissions: ["clipboardWrite"] });
+          // (no permissions API in the launcher: the game window decides by itself)
+          granted = chrome.permissions ? await chrome.permissions.request({ permissions: ["clipboardWrite"] }) : true;
         } catch {
           granted = false;
         }
@@ -97,41 +115,67 @@ const GUARDED = {
     });
   },
 };
+// On: can be switched off here. Off: locked, with a note saying where to switch it on.
+function offOnly(input, key, noteId) {
+  if (!input.checked) return lock(input, noteId);
+  input.addEventListener("change", () => {
+    if (input.checked) return void (input.checked = false);
+    chrome.storage.sync.set({ [key]: false });
+    lock(input, noteId);
+  });
+}
 function lock(input, noteId) {
   input.disabled = true;
   input.closest("label")?.classList.add("off");
-  const note = document.getElementById(noteId);
+  const note = byId(noteId);
+  if (note && IN_PAGE && noteId === "chatEnabled-lock") note.textContent = "Chat can only be switched on (and the free-for-all override changed) from the launcher's settings page in your browser - the address the launcher prints.";
   if (note) note.hidden = false;
 }
 
 // Rank lookups wait for the user's agreement (welcome.html).
 async function consentBanner() {
-  const banner = document.getElementById("consent-banner");
+  const banner = byId("consent-banner");
   const { dataConsent } = await chrome.storage.sync.get({ dataConsent: false });
   banner.hidden = dataConsent === true;
-  document.getElementById("consent-open").addEventListener("click", () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL("src/welcome.html") });
+  byId("consent-open").addEventListener("click", () => {
+    // An extension page can open the tab itself. The in-page overlays (the
+    // launcher's especially) have no chrome.tabs: there the worker opens it.
+    if (!IN_PAGE && typeof chrome.tabs?.create === "function") {
+      chrome.tabs.create({ url: chrome.runtime.getURL("src/welcome.html") }).catch(() => chrome.runtime.sendMessage({ type: "openWelcome" }).catch(() => {}));
+    } else chrome.runtime.sendMessage({ type: "openWelcome" }).catch(() => {});
   });
-  document.getElementById("consent-off").hidden = dataConsent !== true;
-  document.getElementById("consent-off").addEventListener("click", async () => {
+  byId("consent-off").hidden = dataConsent !== true;
+  byId("consent-off").addEventListener("click", async () => {
     await chrome.storage.sync.set({ dataConsent: false });
-    location.reload();
+    if (IN_PAGE) globalThis.__ofrRemountSettings?.();
+    else location.reload();
   });
 }
 
-// Everything here reads storage and the network directly instead of going
-// through the service worker: when badges are missing, the worker is one of the
-// suspects, and a diagnostic that depends on the suspect is useless.
+// Most of this reads storage directly instead of going through the service
+// worker: when badges are missing, the worker is one of the suspects. The one
+// exception is the ofstats check, which asks the worker - it is the part that
+// knows whether lookups were agreed to, and nothing may reach ofstats before.
 
 async function load() {
   let settings = DEFAULTS;
   try {
     settings = { ...DEFAULTS, ...(await chrome.storage.sync.get(DEFAULTS)) };
   } catch {
+    if (IN_PAGE) {
+      // The launcher's game window with the launcher closed: showing defaults as if
+      // they were the settings, and dropping every change, would be worse than saying so.
+      const note = document.createElement("p");
+      note.className = "warn-note";
+      note.textContent = "The launcher is not running, so the settings cannot be read or changed. Start it again, then reopen this.";
+      (ROOT.querySelector(".top") ?? ROOT.firstElementChild)?.after(note);
+      for (const input of ROOT.querySelectorAll("input, select, button")) input.disabled = true;
+      return;
+    }
     // fall back to defaults; the checkboxes still work
   }
   for (const key of KEYS) {
-    const input = document.getElementById(key);
+    const input = byId(key);
     input.checked = Boolean(settings[key]);
     if (GUARDED[key]) {
       GUARDED[key](input);
@@ -148,7 +192,7 @@ async function load() {
     // defaults
   }
   for (const key of Object.keys(CHOICES)) {
-    const select = document.getElementById(key);
+    const select = byId(key);
     select.value = choices[key];
     // A stored value with no matching option (e.g. "ofstats" from an older
     // version) would leave the select blank: fall back to the default.
@@ -159,8 +203,8 @@ async function load() {
   }
 }
 
-document.getElementById("clear").addEventListener("click", async () => {
-  const button = document.getElementById("clear");
+byId("clear").addEventListener("click", async () => {
+  const button = byId("clear");
   try {
     const all = await chrome.storage.local.get(null);
     // Any generation of the cache ("ofs<N>:"): the prefix is bumped whenever the
@@ -212,16 +256,28 @@ async function pingWorker() {
   }
 }
 
+// Always through the worker: it contacts ofstats only after the user agreed to
+// lookups (this page used to fetch it directly, before any agreement - and read a
+// field the endpoint does not have, so it reported FAILED while ofstats was fine).
+// ok: true / false / null (not checked: lookups are off).
 async function probeApi() {
+  const st = await chrome.runtime.sendMessage({ type: "getStatus" }).catch(() => null);
+  if (!st) return { ok: false, error: "the worker did not answer" };
+  if (!st.api || st.api.ok === null) return { ok: null, error: st.api?.probe ?? "lookups are off" };
+  return { ok: st.api.ok === true, error: st.api.probe ?? null };
+}
+
+// An unpacked extension serves its pages from disk but keeps the manifest and
+// worker it was LOADED with until Reload is pressed on chrome://extensions. After
+// the files are updated the two disagree, and new buttons talk to an old worker.
+async function staleLoad() {
+  if (IN_PAGE) return null;
   try {
-    const r = await fetch("https://api.ofstats.io/clans", {
-      headers: { accept: "application/json" },
-    });
-    if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    return { ok: (d?.gamesPlayed ?? 0) > 0 };
-  } catch (err) {
-    return { ok: false, error: err?.message ?? String(err) };
+    const onDisk = (await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json())?.version;
+    const running = chrome.runtime.getManifest().version;
+    return typeof onDisk === "string" && onDisk !== running ? { onDisk, running } : null;
+  } catch {
+    return null;
   }
 }
 
@@ -229,6 +285,7 @@ async function probeApi() {
 // content scripts then do not run at all, which looks exactly like a broken
 // extension: worker fine, API fine, page script silent.
 async function siteAccess() {
+  if (!chrome.permissions) return { granted: true };
   try {
     const granted = await chrome.permissions.contains({
       origins: ["https://openfront.io/*"],
@@ -243,7 +300,7 @@ async function siteAccess() {
 // Asks Chrome for access to openfront.io again (the user may have set the site to
 // "on click"), then injects the packaged scripts into the current tab.
 async function injectNow() {
-  const button = document.getElementById("inject");
+  const button = byId("inject");
   try {
     // Ask for the site once, rather than making the user inject on every page:
     // with the origin granted, the declared content script runs by itself and
@@ -267,7 +324,7 @@ async function injectNow() {
       });
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["src/themes.js", "src/scoring.js", "src/map-viewer.js", "src/charts.js", "src/dashboard.js", "src/recap.js", "src/chat.js", "src/content.js"],
+        files: ["src/themes.js", "src/scoring.js", "src/map-viewer.js", "src/charts.js", "src/dashboard.js", "src/timelapse.js", "src/recap.js", "src/chat.js", "src/content.js"],
       });
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -283,18 +340,26 @@ async function injectNow() {
   setTimeout(() => (button.textContent = "Enable on openfront.io"), 3000);
 }
 
-document.getElementById("inject").addEventListener("click", injectNow);
+if (IN_PAGE) byId("inject").hidden = true; // nothing to inject into: the launcher did that
+else byId("inject").addEventListener("click", injectNow);
 
 async function status() {
-  const el = document.getElementById("status");
+  const el = byId("status");
   const lines = [`<b>v${esc(chrome.runtime.getManifest().version)}</b>`];
 
-  const [worker, api, stored, site] = await Promise.all([
+  const [worker, api, stored, site, stale] = await Promise.all([
     pingWorker(),
     probeApi(),
     chrome.storage.local.get("lastReport").catch(() => ({})),
     siteAccess(),
+    staleLoad(),
   ]);
+
+  if (stale) {
+    lines.push(
+      `<span class="bad">Files updated to v${esc(stale.onDisk)}, but Chrome still runs v${esc(stale.running)}.</span>\nOpen chrome://extensions and press the reload arrow on OpenFront Pro, then reload the game tab.`,
+    );
+  }
 
   lines.push(
     worker.ok
@@ -302,9 +367,11 @@ async function status() {
       : `<span class="bad">Worker: DOWN</span>\n${esc(worker.error)}`,
   );
   lines.push(
-    api.ok
-      ? '<span class="good">ofstats.io: reachable</span>'
-      : `<span class="bad">ofstats.io: FAILED</span>\n${esc(api.error ?? "?")}`,
+    api.ok === null
+      ? `<span>ofstats.io: not checked</span> (${esc(api.error ?? "lookups are off")})`
+      : api.ok
+        ? '<span class="good">ofstats.io: reachable</span>'
+        : `<span class="bad">ofstats.io: FAILED</span>\n${esc(api.error ?? "?")}`,
   );
 
   if (site.granted === false) {
@@ -344,7 +411,7 @@ ${esc(r.lookupFailed)}`,
 // Starred players, with a remove button each. Built with DOM methods, not
 // innerHTML: names are user-chosen strings.
 async function renderWatchlist() {
-  const list = document.getElementById("watchlist");
+  const list = byId("watchlist");
   let names = [];
   try {
     names = (await chrome.storage.sync.get({ watchlist: [] })).watchlist ?? [];
@@ -391,18 +458,22 @@ const PREVIEW_TEXT = [
 function previewTheme(theme) {
   const themes = globalThis.OFR_THEMES ?? {};
   const chosen = themes[theme] ? theme : "classic";
-  if (chosen === "classic") delete document.documentElement.dataset.ofrTheme;
-  else document.documentElement.dataset.ofrTheme = chosen;
+  // In the page the content script applies the theme (it listens to storage);
+  // only the popup's own document needs it set here.
+  if (!IN_PAGE) {
+    if (chosen === "classic") delete document.documentElement.dataset.ofrTheme;
+    else document.documentElement.dataset.ofrTheme = chosen;
+  }
   // Classic IS the game's own colours, so there is nothing to recolour with.
-  const blurb = document.getElementById("theme-blurb");
+  const blurb = byId("theme-blurb");
   if (blurb) blurb.textContent = themes[chosen]?.blurb ?? "";
-  const site = document.getElementById("themeSite");
+  const site = byId("themeSite");
   if (site) {
     site.disabled = chosen === "classic";
-    document.getElementById("themeSite-row")?.classList.toggle("off", chosen === "classic");
+    byId("themeSite-row")?.classList.toggle("off", chosen === "classic");
   }
   const icons = themes[chosen]?.icons ?? {};
-  const badges = document.querySelectorAll(
+  const badges = ROOT.querySelectorAll(
     "#theme-preview .ofr-badge:not([data-ofr-kind='missing'])",
   );
   badges.forEach((badge, i) => {
@@ -411,7 +482,7 @@ function previewTheme(theme) {
 }
 
 async function loadTheme() {
-  const select = document.getElementById("theme");
+  const select = byId("theme");
   const themes = globalThis.OFR_THEMES ?? {};
   for (const [id, theme] of Object.entries(themes)) {
     const option = document.createElement("option");
@@ -433,6 +504,36 @@ async function loadTheme() {
   });
 }
 
+// Tabs; the last one used is remembered.
+function tabs() {
+  const buttons = [...ROOT.querySelectorAll(".tabs button[data-tab]")];
+  const show = (name) => {
+    for (const b of buttons) b.setAttribute("aria-selected", String(b.dataset.tab === name));
+    for (const pane of ROOT.querySelectorAll(".pane")) pane.dataset.on = String(pane.dataset.pane === name);
+  };
+  for (const b of buttons) {
+    b.addEventListener("click", () => {
+      show(b.dataset.tab);
+      chrome.storage.local.set({ popupTab: b.dataset.tab }).catch(() => {});
+    });
+  }
+  show("look");
+  // popup.html#chat opens on that tab (links from the page, screenshots)
+  const wanted = IN_PAGE ? "" : location.hash.slice(1);
+  if (!IN_PAGE) {
+    window.addEventListener("hashchange", () => {
+      const next = location.hash.slice(1);
+      if (buttons.some((b) => b.dataset.tab === next)) show(next);
+    });
+  }
+  if (buttons.some((b) => b.dataset.tab === wanted)) return show(wanted);
+  chrome.storage.local.get({ popupTab: "look" }).then(
+    (st) => show(buttons.some((b) => b.dataset.tab === st.popupTab) ? st.popupTab : "look"),
+    () => {},
+  );
+}
+
+tabs();
 load();
 consentBanner();
 loadTheme();

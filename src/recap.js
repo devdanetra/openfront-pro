@@ -562,7 +562,7 @@
     return b;
   };
 
-  function createWidget({ icon = () => "", onDashboard = null, onClose = null, onToggle = null, avoidRect = null, startMin = false } = {}) {
+  function createWidget({ icon = () => "", onDashboard = null, onClose = null, onToggle = null, avoidRect = null, startMin = false, gameId = null, streamer = false } = {}) {
     const C = globalThis.OFR_CHARTS;
     const root = el("div", "ofr-recap");
     let model = null;
@@ -633,6 +633,8 @@
     window.addEventListener("resize", onResize);
 
     function destroy() {
+      lapsePlayer?.stop();
+      unsubscribeLapse?.();
       window.removeEventListener("resize", onResize);
       root.remove();
     }
@@ -815,10 +817,79 @@
       return pane;
     }
 
-    const PANES = { summary: ["Summary", summaryPane], graphs: ["Graphs", graphsPane], awards: ["Awards", awardsPane], standings: ["Standings", standingsPane] };
+    // The whole-map timelapse recorded by timelapse.js, if there is one for this game.
+    // It does not need the game's published record: while the record is awaited (or
+    // never comes - single-player games are not archived) it is offered next to the
+    // status message. An export in progress survives the pane being rebuilt.
+    let lapsePlayer = null;
+    let lapseJob = null; // { status } while an export runs
+    let lapseStatus = "";
+    let streamerNow = streamer === true;
+    let lapseStreamerShown = null; // what the running preview was started with
+    const lapseId = () => model?.meta?.gameId ?? gameId;
+    const lapseStreamer = () => streamerNow || model?.streamer === true;
+    function lapsePane() {
+      const L = globalThis.OFR_LAPSE;
+      const pane = el("div", "ofr-recap-pane");
+      lapsePlayer?.stop();
+      lapseStreamerShown = lapseStreamer();
+      lapsePlayer = L.player({ streamer: lapseStreamerShown, gameId: lapseId() });
+      pane.append(lapsePlayer.canvas);
+      pane.append(el("p", "ofr-recap-note", `${L.count(lapseId())} frames over ${mmss(L.seconds())} of play. Made in your browser; nothing is uploaded.`));
+      const row = el("div", "ofr-recap-actions ofr-lapse-actions");
+      const status = el("p", "ofr-recap-note", lapseStatus);
+      row.dataset.busy = String(!!lapseJob);
+      const say = (text) => {
+        lapseStatus = text;
+        if (status.isConnected) status.textContent = text;
+        for (const other of body.querySelectorAll(".ofr-lapse-status")) other.textContent = text; // a rebuilt pane
+      };
+      status.classList.add("ofr-lapse-status");
+      const run = (label, ext, make) =>
+        button(label, null, async () => {
+          if (lapseJob) return;
+          lapseJob = { label };
+          for (const r of body.querySelectorAll(".ofr-lapse-actions")) r.dataset.busy = "true";
+          const id = lapseId();
+          try {
+            const blob = await make((f) => say(`${label}: ${Math.round(100 * f)}%`));
+            L.save(blob, `openfront-${id ?? "game"}.${ext}`);
+            say(`Saved ${(blob.size / 1048576).toFixed(1)} MB ${ext.toUpperCase()}.`);
+          } catch (err) {
+            say(`Failed: ${err?.message ?? err}`);
+          }
+          lapseJob = null;
+          for (const r of body.querySelectorAll(".ofr-lapse-actions")) r.dataset.busy = "false";
+        });
+      row.append(
+        run("Save video", "webm", (onProgress) => L.toWebM({ gameId: lapseId(), onProgress, streamer: lapseStreamer(), endCard: model?.state === "ok" ? drawCard(model, { icon, progress }) : null })),
+        run("Save GIF", "gif", (onProgress) => L.toGif({ gameId: lapseId(), onProgress, streamer: lapseStreamer() })),
+      );
+      pane.append(row, status, el("p", "ofr-recap-note", "Video plays inline on Discord and is small; the GIF is several times bigger. The video is recorded in real time (it pauses while this tab is hidden), so it takes as long as it plays."));
+      return pane;
+    }
+    const hasLapse = () => (globalThis.OFR_LAPSE?.count(lapseId()) ?? 0) >= 5;
+    // While only a message is shown, the Timelapse tab appears once there is something to show.
+    let unsubscribeLapse = globalThis.OFR_LAPSE?.onFrame?.(() => {
+      if (!model && message && hasLapse() && !tabs.childElementCount) setMessage(message.text, message.opts);
+    });
+    let message = null;
+    function statusPane() {
+      const pane = el("div", "ofr-recap-pane");
+      pane.append(el("p", "ofr-recap-note ofr-recap-wait", message?.text ?? ""));
+      if (message?.opts?.retry) {
+        const again = button("Try again", null, () => message.opts.retry());
+        again.className = "ofr-recap-more";
+        pane.append(again);
+      }
+      return pane;
+    }
+
+    const PANES = { summary: ["Summary", summaryPane], graphs: ["Graphs", graphsPane], awards: ["Awards", awardsPane], standings: ["Standings", standingsPane], lapse: ["Timelapse", lapsePane], status: ["Status", statusPane] };
 
     function show(next) {
       tab = next;
+      if (tab !== "lapse") lapsePlayer?.stop();
       for (const b of tabs.children) b.dataset.on = String(b.dataset.tab === tab);
       body.replaceChildren(PANES[tab][1]());
       body.scrollTop = 0;
@@ -854,39 +925,59 @@
       if (onDashboard) actions.append(button("My stats", "Open your Pro dashboard", () => onDashboard()));
     }
 
-    function setMessage(text, { retry = null, meta = "" } = {}) {
+    function setMessage(text, opts = {}) {
+      const tabKeys = [...tabs.children].map((b) => b.dataset.tab).join(",");
+      const same = !model && message && tabKeys === "status,lapse" && hasLapse();
+      message = { text, opts };
       model = null;
       root.dataset.tone = "neutral";
       hero.replaceChildren();
-      tabs.replaceChildren();
       actions.replaceChildren();
       foot.replaceChildren();
-      metaLine.textContent = meta;
-      body.replaceChildren(el("p", "ofr-recap-note ofr-recap-wait", text));
-      if (retry) {
-        const again = button("Try again", null, () => retry());
-        again.className = "ofr-recap-more";
-        body.append(again);
+      metaLine.textContent = opts.meta ?? "";
+      if (!hasLapse()) {
+        tabs.replaceChildren();
+        lapsePlayer?.stop();
+        body.replaceChildren(statusPane());
+        return;
       }
+      // A timelapse is there: the message becomes one tab, the timelapse the other.
+      if (same && (tab === "lapse" || tab === "status")) {
+        if (tab === "status") body.replaceChildren(statusPane());
+        return; // do not restart the player (or lose an export) on every poll
+      }
+      tabs.replaceChildren(
+        ...["status", "lapse"].map((key) => {
+          const b = button(PANES[key][0], null, () => show(key));
+          b.dataset.tab = key;
+          return b;
+        }),
+      );
+      show(tab === "lapse" ? "lapse" : "status");
     }
 
     function setModel(next) {
-      model = next;
-      if (model.state !== "ok") {
-        setMessage(model.message);
+      if (next.state !== "ok") {
+        model = null;
+        setMessage(next.message);
         return;
       }
+      model = next;
+      message = null;
       const m = model.meta;
       metaLine.textContent = [m.map, m.mode, m.duration ? mmss(m.duration) : null].filter(Boolean).join(" · ");
       renderHero();
       tabs.replaceChildren(
-        ...Object.entries(PANES).map(([key, [label]]) => {
+        ...Object.entries(PANES).filter(([key]) => key !== "status" && (key !== "lapse" || hasLapse())).map(([key, [label]]) => {
           const b = button(key === "awards" && model.awards.length ? `${label} ${model.awards.length}` : label, null, () => show(key));
           b.dataset.tab = key;
           return b;
         }),
       );
-      show(PANES[tab] ? tab : "summary");
+      if (tab === "lapse" && hasLapse() && body.querySelector(".ofr-lapse-canvas")?.isConnected && lapseStreamerShown === lapseStreamer()) {
+        // keep the running preview (and any export) when the recap refreshes around it
+        for (const b of tabs.children) b.dataset.on = String(b.dataset.tab === tab);
+      } else show(PANES[tab] && tab !== "status" && (tab !== "lapse" || hasLapse()) ? tab : "summary");
       renderFoot();
       renderActions();
       setMin(root.dataset.min === "true"); // refresh the folded headline
@@ -904,7 +995,12 @@
     }
 
     setMin(startMin || window.innerWidth < 720);
-    return { el: root, setMessage, setModel, setProgress, refresh, destroy, avoid, get model() { return model; }, lines: () => (model ? textLines(model, progress) : []) };
+    function setStreamer(on) {
+      streamerNow = on === true;
+      if (tab === "lapse" && lapseStreamerShown !== lapseStreamer() && body.querySelector(".ofr-lapse-canvas")) show("lapse");
+    }
+
+    return { el: root, setMessage, setModel, setProgress, refresh, destroy, avoid, setStreamer, get model() { return model; }, lines: () => (model ? textLines(model, progress) : []) };
   }
 
   // ---- share image ---------------------------------------------------------------------------

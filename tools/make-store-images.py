@@ -67,7 +67,7 @@ place(im, shot("badge-lobby.png").crop((48, 172, 552, 340)), BODY)  # stand-in l
 im.save(os.path.join(OUT, "screenshot-1.png"))
 
 # 2. dashboard
-im, _ = canvas("A stats dashboard inside the game's site", "Rank per map and mode, rolling win rate, survival and gold trends, recent games, clan stats")
+im, _ = canvas("A stats dashboard inside the game's site", "World rank, rank on every map, win rate per mode, trends, recent games, clan stats")
 place(im, shot("theme-classic-dashboard.png"), BODY)
 im.save(os.path.join(OUT, "screenshot-2.png"))
 

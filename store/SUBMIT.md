@@ -17,10 +17,11 @@ Everything to paste is in this folder. The steps that only you can do are marked
 
 ## 1. Upload
 
-*Add new item* -> upload **`openfront-pro-5.7.0.zip`** (built by
-`node tools/pack.mjs`; manifest at the root, 25 files, no tools/tests).
-Do **not** upload an older zip: 5.6.x still asks for permissions that were
-removed for the store.
+*Add new item* -> upload **`openfront-pro-5.8.0.zip`** (built by
+`node tools/pack.mjs`; manifest at the root, 27 files including `src/team.js`
+and `src/timelapse.js`, no tools/tests). Do **not** upload an older zip: 5.6.x
+still asks for permissions that were removed for the store, and the privacy
+texts in this folder describe 5.8.0.
 
 ## 2. Store listing tab -> `LISTING.md`
 
@@ -28,7 +29,10 @@ removed for the store.
 - Store icon: `store/store-icon-128.png` (96px artwork + 16px padding).
 - Screenshots: `screenshot-1.png` ... `screenshot-5.png` (1280x800).
   **Replace `screenshot-1.png` with a capture of a real lobby** (1280x800, your
-  own browser): the current one is a test stand-in and looks it.
+  own browser): the current one is a test stand-in and looks it. Screenshots 2
+  and 4 must show the current visual dashboard and home card (the listing
+  describes them): `node tools/cdp-themes.mjs`, then
+  `python tools/make-store-images.py`.
 - Small promo tile: `promo-small-440x280.png`.
 - Homepage URL: `https://github.com/devdanetra/openfront-pro`
 - Support URL: `https://github.com/devdanetra/openfront-pro/issues`

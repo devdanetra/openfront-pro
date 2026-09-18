@@ -1,5 +1,5 @@
 // First-run disclosure. Nothing is looked up anywhere until "I agree" is pressed
-// here (or the same switch is used in the popup): the worker refuses lookup
+// here (the popup's "Read and turn on" opens this page): the worker refuses lookup
 // messages while dataConsent is not true.
 const state = document.getElementById("state");
 
@@ -7,7 +7,7 @@ function show(on) {
   state.dataset.on = String(on);
   state.textContent = on
     ? "Rank lookups are ON. Open or reload openfront.io to see them."
-    : "Rank lookups are OFF. Nothing is sent anywhere.";
+    : "Rank lookups are OFF. No names or game ids are sent.";
 }
 
 async function set(on) {

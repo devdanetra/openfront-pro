@@ -53,17 +53,17 @@
       <div class="card">
         <h2 style="margin-top: 0">To show ranks, player names are looked up at a third-party service</h2>
         <ul>
-          <li>The <b>player names shown in your lobby and game - including your own OpenFront username</b> - and clan tags are sent to <code>api.ofstats.io</code>, an independent community statistics service for public OpenFront games, to fetch each player's public statistics.</li>
+          <li>The <b>player names shown in your lobby and game - including your own OpenFront username</b> - clan tags, and any name you look up in the dashboard are sent to <code>api.ofstats.io</code>, an independent community statistics service for public OpenFront games, to fetch each player's public statistics.</li>
           <li>When a game ends, <b>that game's id</b> is sent to OpenFront's own public API (<code>api.openfront.io</code>) to read the public record of the game for the recap.</li>
           <li>Like any web request, these reveal your IP address to those services. They are run by third parties under their own policies.</li>
-          <li><b>Nothing is sent to the developer of this extension</b> - there is no developer server, no analytics, no ads, no tracking. Settings, a short-lived cache and your session results stay in this browser.</li>
+          <li><b>Nothing is sent to the developer of this extension</b> - there is no developer server, no analytics, no ads, no tracking. Settings, a short-lived cache and your session results stay in this browser (with the Steam companion launcher: in a file on this computer).</li>
         </ul>
         <div class="actions">
           <button id="agree" class="primary" type="button">I agree - turn rank lookups on</button>
           <button id="decline" type="button">Not now</button>
         </div>
         <div id="state" data-on="false"></div>
-        <p class="dim">Without this, themes and website layouts still work; ranks, the dashboard and the recap stay off. You can change your mind any time from the extension's popup.</p>
+        <p class="dim">Without this, themes and website layouts still work; ranks, your stats card on the front page, the dashboard and the recap (with its timelapse) stay off. You can change your mind any time from the extension's popup.</p>
       </div>
 
       <h2>Chat is separate, and off</h2>

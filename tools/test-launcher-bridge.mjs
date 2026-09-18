@@ -106,7 +106,7 @@ console.log("attach");
 check("launcher attached", /attached to the game window/.test(L.out.join("")), L.out.join("").split("\n").slice(-2).join(" | "));
 check("content scripts ran in the isolated world", (await c.inWorld("typeof globalThis.OFR_SCORING + '/' + typeof globalThis.OFR_CHAT + '/' + typeof chrome.runtime.sendMessage")) === "object/object/function");
 check("page world sees neither chrome.* nor the bridge", (await c.inPage("typeof window.chrome?.runtime?.sendMessage + '/' + typeof window.__ofrSend + '/' + typeof window.__ofrReceive")) === "undefined/undefined/undefined");
-check("page-probe ran in the page world", (await c.inPage("window.__ofrProbeInjected === true")) === true);
+check("page-probe ran in the page world", (await c.inPage("window.__ofrProbeVersion >= 3")) === true);
 let r = await c.inWorld(BRIDGE);
 check("storage, worker messages and ports work", okBridge(r), JSON.stringify(r));
 
@@ -123,6 +123,34 @@ check("...and after it is gone", okBridge(r), JSON.stringify(r));
 console.log("hostile data");
 const echo = await c.inWorld(`chrome.storage.local.set({ evil: { "__proto__": { polluted: true }, "text": "a\\u2028b</script><img src=x onerror=1>" } }).then(() => chrome.storage.local.get("evil")).then((v) => ({ text: v.evil.text, polluted: ({}).polluted === true, keys: Object.keys(v.evil) }))`);
 check("strings survive as data, nothing is polluted", echo?.text === "a\u2028b</script><img src=x onerror=1>" && echo.polluted === false, JSON.stringify(echo));
+
+console.log("settings inside the game window");
+const st = await c.inWorld(`(async () => {
+  globalThis.__ofrOpenSettingsInPage();
+  await new Promise((r) => setTimeout(r, 1500));
+  const root = globalThis.__ofrSettingsShadow;
+  const box = root.getElementById("showGames");
+  const before = box.checked;
+  box.click();
+  await new Promise((r) => setTimeout(r, 600));
+  const stored = (await chrome.storage.sync.get("showGames")).showGames;
+  const chat = root.getElementById("chatEnabled");
+  chat.click();
+  await new Promise((r) => setTimeout(r, 300));
+  const chatStored = await chrome.storage.sync.get({ chatEnabled: false, chatConsent: false });
+  let session = "no area";
+  try {
+    session = chrome.storage.session ? JSON.stringify(await chrome.storage.session.get(null)) : "no area";
+  } catch (err) {
+    session = "refused";
+  }
+  return { overlay: !!document.querySelector(".ofr-settings"), inputs: root.querySelectorAll("input, select").length, themes: root.getElementById("theme").options.length, before, stored, injectHidden: root.getElementById("inject").hidden, status: root.getElementById("status").textContent.slice(0, 40), chatLocked: chat.disabled && !root.getElementById("chatEnabled-lock").hidden, chatOn: chatStored.chatEnabled || chatStored.chatConsent, session };
+})()`);
+check("the same settings UI mounts in a shadow root and writes to storage", st?.overlay && st.inputs > 15 && st.themes === 6 && st.stored === !st.before && st.injectHidden, JSON.stringify(st));
+check("chat cannot be switched on from inside the game window", st?.chatLocked === true && st.chatOn === false, JSON.stringify(st));
+check("the game window gets no chrome.storage.session (the worker's chat keys)", st?.session === "no area", String(st?.session));
+check("the page cannot look inside it", (await c.inPage(`(() => { const h = document.querySelector(".ofr-settings-box > div:last-child"); return h ? h.shadowRoot === null && !document.querySelector(".ofr-settings input") : false; })()`)) === true);
+await c.inWorld(`document.querySelector(".ofr-settings-head button").click(); 1`);
 
 console.log("reload");
 await c.send("Page.reload");

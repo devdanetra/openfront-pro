@@ -88,7 +88,9 @@
       svg.append(svgEl("text", { class: "ofr-chart-label", x: sx(t), y: y1 + 12, "text-anchor": "middle" }, xFormat(t)));
     }
     if (baseline) {
-      svg.append(svgEl("line", { class: "ofr-chart-baseline", x1: x0, x2: x1, y1: sy(baseline.y), y2: sy(baseline.y) }));
+      const rule = svgEl("line", { class: "ofr-chart-baseline", x1: x0, x2: x1, y1: sy(baseline.y), y2: sy(baseline.y) });
+      if (baseline.title) rule.append(svgEl("title", {}, baseline.title));
+      svg.append(rule);
       if (baseline.label) {
         svg.append(svgEl("text", { class: "ofr-chart-label", x: x1, y: sy(baseline.y) - 3, "text-anchor": "end" }, baseline.label));
       }
@@ -251,5 +253,198 @@
     return wrap;
   }
 
-  globalThis.OFR_CHARTS = { line, columns, compare, stacked, bands, niceMax };
+  // ---- ring / gauge: one value as an arc ------------------------------------------------
+  // frac: 0..1 of the sweep. sweep 360 is a full ring starting at 12 o'clock; a
+  // smaller sweep is a gauge open at the bottom. segments: [{ from, to, band }]
+  // paint the track in faint rank-band colours. marker: { frac, title } is a tick
+  // across the ring. pre / value / sub: text in the middle, top to bottom.
+  // The arc's colour comes from data-ofr-band (rank bands) or data-kind on the
+  // <svg> (dashboard.css), never from here.
+  const clamp01 = (v) => Math.max(0, Math.min(1, num(v)));
+  const r2 = (v) => Math.round(v * 100) / 100;
+  function ring({
+    frac,
+    size = 96,
+    thickness = 10,
+    sweep = 360,
+    band = null,
+    kind = null,
+    segments = null,
+    marker = null,
+    pre = null,
+    value = null,
+    sub = null,
+    label = "chart",
+    title = null,
+  }) {
+    const svg = svgEl("svg", {
+      class: "ofr-ring",
+      viewBox: "0 0 100 100",
+      width: size,
+      height: size,
+      role: "img",
+      "aria-label": label,
+      "data-ofr-band": band,
+      "data-kind": kind,
+    });
+    if (title) svg.append(svgEl("title", {}, title));
+    const r = 50 - thickness / 2 - 4;
+    const whole = Math.min(360, Math.max(10, sweep)) / 3.6; // of pathLength 100
+    const start = sweep >= 360 ? -90 : 90 + (360 - sweep) / 2; // the gap centred at the bottom
+    const arc = (from, to, cls, attrs = {}) => {
+      const len = r2(Math.max(0, to - from) * whole);
+      return svgEl("circle", {
+        class: cls,
+        cx: 50,
+        cy: 50,
+        r: r2(r),
+        pathLength: 100,
+        "stroke-width": thickness,
+        "stroke-dasharray": `${len} ${r2(100 - len + 1)}`,
+        "stroke-dashoffset": r2(-from * whole),
+        transform: `rotate(${start} 50 50)`,
+        ...attrs,
+      });
+    };
+    if (segments?.length) {
+      const gap = 0.006;
+      for (const s of segments) {
+        svg.append(arc(clamp01(s.from) + gap, clamp01(s.to) - gap, "ofr-ring-seg", { "data-ofr-band": s.band }));
+      }
+    } else {
+      svg.append(arc(0, 1, "ofr-ring-track"));
+    }
+    const f = clamp01(frac);
+    if (f > 0) svg.append(arc(0, f, "ofr-ring-arc"));
+    if (marker && Number.isFinite(marker.frac)) {
+      const deg = ((start + clamp01(marker.frac) * (whole * 3.6)) * Math.PI) / 180;
+      const at = (rad) => [r2(50 + rad * Math.cos(deg)), r2(50 + rad * Math.sin(deg))];
+      const [xa, ya] = at(r - thickness / 2 - 3);
+      const [xb, yb] = at(r + thickness / 2 + 3);
+      // a wider line in the background colour under the tick, so the tick still
+      // shows where the arc is the same colour as the tick (high contrast: white on white)
+      svg.append(svgEl("line", { class: "ofr-ring-mark-halo", x1: xa, y1: ya, x2: xb, y2: yb }));
+      const tick = svgEl("line", { class: "ofr-ring-mark", x1: xa, y1: ya, x2: xb, y2: yb });
+      if (marker.title) tick.append(svgEl("title", {}, marker.title));
+      svg.append(tick);
+    }
+    const lines = [pre, value, sub].filter((t) => t != null && t !== "");
+    if (lines.length) {
+      // the value is the big line; pre sits above it, sub below
+      const vy = sweep >= 360 ? 50 : 52;
+      if (pre != null) svg.append(svgEl("text", { class: "ofr-ring-pre", x: 50, y: vy - 17, "text-anchor": "middle", "dominant-baseline": "central" }, pre));
+      if (value != null) svg.append(svgEl("text", { class: "ofr-ring-value", x: 50, y: vy, "text-anchor": "middle", "dominant-baseline": "central" }, value));
+      if (sub != null) svg.append(svgEl("text", { class: "ofr-ring-sub", x: 50, y: vy + 17, "text-anchor": "middle", "dominant-baseline": "central" }, sub));
+    }
+    return svg;
+  }
+
+  // ---- icons: small line glyphs in currentColor (24 x 24) --------------------------------
+  const pt = (r, deg) => {
+    const a = (deg * Math.PI) / 180;
+    return `${r2(12 + r * Math.cos(a))} ${r2(12 + r * Math.sin(a))}`;
+  };
+  const wedge = (r1, rr, a0, a1) =>
+    `M${pt(r1, a0)} L${pt(rr, a0)} A${rr} ${rr} 0 0 1 ${pt(rr, a1)} L${pt(r1, a1)} A${r1} ${r1} 0 0 0 ${pt(r1, a0)} Z`;
+  const ICONS = {
+    clock: [["circle", { cx: 12, cy: 12, r: 9 }], ["path", { d: "M12 7v5l3.5 2" }]],
+    shield: [["path", { d: "M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" }]],
+    coins: [
+      ["ellipse", { cx: 12, cy: 6, rx: 7, ry: 3 }],
+      ["path", { d: "M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6" }],
+      ["path", { d: "M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" }],
+    ],
+    trophy: [
+      ["path", { d: "M7 4h10v5a5 5 0 0 1-10 0z" }],
+      ["path", { d: "M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3" }],
+      ["path", { d: "M12 14v4M8 20.5h8" }],
+    ],
+    flag: [["path", { d: "M5 21V4" }], ["path", { d: "M5 4h12l-2.5 4 2.5 4H5" }]],
+    swords: [
+      ["path", { d: "M5 5l11 11M13 18.5l5.5-5.5M16 16l3 3" }],
+      ["path", { d: "M19 5L8 16M5.5 13l5.5 5.5M8 16l-3 3" }],
+    ],
+    nuke: [
+      ["circle", { class: "fill", cx: 12, cy: 12, r: 1.8 }],
+      ["path", { class: "fill", d: [-90, 30, 150].map((c) => wedge(3.4, 9.5, c - 30, c + 30)).join(" ") }],
+      ["circle", { cx: 12, cy: 12, r: 10.5, class: "thin" }],
+    ],
+    flame: [["path", { class: "fill", d: "M12 2.5c.7 3.3 5 5.3 5 10.5a5 5 0 0 1-10 0c0-2.7 1.4-4.4 2.5-5.4.2 1.7.9 2.7 2 3.2-.3-3.2-.1-5.8.5-8.3z" }]],
+    users: [
+      ["circle", { cx: 9, cy: 8, r: 3.5 }],
+      ["path", { d: "M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" }],
+      ["path", { d: "M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.6c1.9.8 3 2.8 3 5.4" }],
+    ],
+  };
+  function icon(name, cls = "") {
+    const svg = svgEl("svg", { class: `ofr-icon ${cls}`.trim(), viewBox: "0 0 24 24", "aria-hidden": "true", "data-icon": name });
+    for (const [tag, attrs] of ICONS[name] ?? []) svg.append(svgEl(tag, attrs));
+    return svg;
+  }
+
+  // ---- pips: a row of small marks, the first `lit` of them on --------------------------
+  // glyph: "dot" or an icon name (e.g. "flame").
+  function pips({ lit, total, glyph = "dot", label = "", title = null }) {
+    const wrap = el("span", "ofr-pips");
+    wrap.dataset.glyph = glyph;
+    wrap.setAttribute("role", "img");
+    wrap.setAttribute("aria-label", label);
+    if (title) wrap.title = title;
+    const n = Math.max(0, Math.round(num(total)));
+    for (let i = 0; i < n; i++) {
+      const p = glyph === "dot" ? el("span", "ofr-pip") : icon(glyph, "ofr-pip");
+      if (i < num(lit)) p.classList.add("on");
+      wrap.append(p);
+    }
+    return wrap;
+  }
+
+  // ---- meter: one thin horizontal bar, frac 0..1 of its track ----------------------------
+  // kind / band pick the colour (dashboard.css); mark: { frac, title } is a tick.
+  function meter({ frac, kind = null, band = null, mark = null, title = null, label = null }) {
+    const track = el("span", "ofr-meter");
+    const fill = el("span", "ofr-meter-fill");
+    fill.style.width = `${(100 * clamp01(frac)).toFixed(1)}%`;
+    if (kind) fill.dataset.kind = kind;
+    if (band) fill.dataset.ofrBand = band;
+    track.append(fill);
+    if (mark && Number.isFinite(mark.frac)) {
+      const tick = el("span", "ofr-meter-mark");
+      tick.style.left = `${(100 * clamp01(mark.frac)).toFixed(1)}%`;
+      if (mark.title) tick.title = mark.title;
+      track.append(tick);
+    }
+    if (title) track.title = title;
+    if (label) {
+      track.setAttribute("role", "img");
+      track.setAttribute("aria-label", label);
+    }
+    return track;
+  }
+
+  // ---- mirror: two sides of one measure, bars growing out from the middle ----------------
+  // rows: [{ label, title, a: { frac, text, better }, b: { frac, text, better } }]
+  function mirror({ rows }) {
+    const wrap = el("div", "ofr-mirror");
+    const side = (v, which) => {
+      const cell = el("div", `ofr-mirror-side ${which}`);
+      const track = el("span", "ofr-mirror-track");
+      const fill = el("span", "ofr-mirror-fill");
+      const f = v && Number.isFinite(v.frac) ? clamp01(v.frac) : 0;
+      fill.style.width = `${f > 0 ? Math.max(2, 100 * f).toFixed(1) : 0}%`;
+      if (v?.better) cell.dataset.better = "true";
+      track.append(fill);
+      cell.append(el("span", "ofr-mirror-value", v?.text ?? "—"), track);
+      return cell;
+    };
+    for (const row of rows) {
+      const line = el("div", "ofr-mirror-row");
+      if (row.title) line.title = row.title;
+      line.append(side(row.a, "a"), el("span", "ofr-mirror-label", row.label), side(row.b, "b"));
+      wrap.append(line);
+    }
+    return wrap;
+  }
+
+  globalThis.OFR_CHARTS = { line, columns, compare, stacked, bands, niceMax, ring, icon, pips, meter, mirror };
 })();

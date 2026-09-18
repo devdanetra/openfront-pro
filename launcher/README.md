@@ -45,13 +45,28 @@ running). Only one launcher runs at a time.
 
 On the first run your browser opens the same "before you start" page the
 extension shows on install: nothing is looked up until you agree there.
-**Settings open in your normal browser** (the game window cannot host extension
-pages): press *Settings* in the Pro card or dashboard, or open the address the
-launcher prints. That page lives on 127.0.0.1 behind a random address that
-changes every run; other websites cannot read or change it.
+**Settings open inside the game**: press *Settings* in the Pro card or the
+dashboard and the same settings page appears as an overlay in the game window.
+(Chat, and its free-for-all switch, can only be switched **on** - with chat's
+own "I agree" - on the launcher's settings page in your normal browser, at the
+address the launcher prints; in the game window they can only be switched off,
+because a script in the game's page could cover the overlay and steer a click.
+That page lives on 127.0.0.1 behind a random address that changes every run;
+other websites cannot read or change it. The scouting report's auto-copy can be
+switched on in the game window too: the game window writes the clipboard
+without a browser permission.)
 
-Settings are stored in `%APPDATA%\openfront-pro-launcher\storage.json`, separate
-from the browser extension's. Nothing else is written anywhere.
+Settings, agreement flags, the watchlist, your public player id, today's
+results, games waiting for their record, the chat mute list, the last
+diagnostic report shown in the settings (it can list player names from the last
+scan that had no statistics) and a few interface preferences are stored in
+plain text in `%APPDATA%\openfront-pro-launcher\storage.json`, separate from the
+browser extension's (plus `launcher.lock` while the launcher runs, and a
+`storage.json.corrupt-<time>` copy if the file was ever found damaged). The rank
+cache, the chat keys and the team-channel state stay in memory. The launcher is
+portable: deleting the exe or the zip's folder does **not** remove
+`%APPDATA%\openfront-pro-launcher` - delete that folder yourself to remove the
+data. The game's own files are never written.
 
 ### If the game starts without the port
 
@@ -69,7 +84,8 @@ removing it afterwards.
 
 - The map preview: the Steam build ships its map files inside the app instead of
   fetching them from the CDN.
-- Desktop notifications for the watchlist (the sound still plays).
+- Desktop notifications for the watchlist (the sound still plays while *Sound
+  and notification* is on).
 - macOS / Linux: untested. The code has branches for them, but the Steam launch
   is Windows-only; start the game yourself with the flag and use `--attach`.
 
@@ -81,7 +97,7 @@ removing it afterwards.
 | `src/page-probe.js` in the page's main world | the same file, injected into the main world |
 | service worker (`src/background.js`) | the same file in a `node:vm` context, behind a stand-in for `chrome.*` |
 | `chrome.runtime` messages and ports | a CDP binding one way, `Runtime.evaluate` of JSON *data* the other |
-| `chrome.storage` | a JSON file, written atomically (`session` and the rank cache stay in memory) |
+| `chrome.storage` | a plain JSON file, written atomically (the rank cache stays in memory; so does `session` - chat signing keys, team-channel state - which only the worker can read, never the game window or the settings page) |
 | popup / first-run page | served on `127.0.0.1` behind a random token with a strict CSP; other hosts, origins and frames are refused |
 
 The game's window loads its bundled client from `app://openfront/` with no

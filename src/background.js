@@ -8,7 +8,7 @@
 // were not throwaway guest handles had data.
 
 // Chat: BIP-340 signing (vendored @noble) and the small Nostr client built on it.
-importScripts("vendor/nostr-crypto.js", "nostr.js");
+importScripts("vendor/nostr-crypto.js", "nostr.js", "team.js");
 
 const OFSTATS_API = "https://api.ofstats.io";
 
@@ -43,10 +43,12 @@ const DEFAULT_SETTINGS = {
   // Nothing is looked up anywhere until the user has read what is sent and agreed
   // (src/welcome.html, opened on install). Themes and layouts work without it.
   dataConsent: false,
+  timelapse: true, // record a whole-map timelapse of each game (memory only, never uploaded)
   chatEnabled: false, // opt-in: talks to third-party relays...
   chatConsent: false, // ...and only after agreeing to the chat's own disclosure
   chatInFfa: false, // chat while alive in a free-for-all (OpenFront's terms forbid coordinating there)
   chatFilter: true, // mask slurs and the like in incoming messages
+  chatTeam: true, // team games: an encrypted channel for teammates verified through the game (docs/TEAM-CHAT.md)
   layout: "cards", // cards | compact | panel
   uiSize: "medium", // small | medium | large | xlarge
   siteLayout: "default", // default | wide | sidebar | focus (site-layouts.css)
@@ -81,6 +83,19 @@ async function migrateThemes() {
   }
 }
 const themesMigrated = migrateThemes();
+
+// Chat consent covers what chat sends. 5.8 added the team channel's public data
+// (player slot, verifications, encrypted team messages), so an agreement given to
+// an older text is asked for again once: chat stays off until "I agree" is pressed
+// on the current text. New installs are simply marked current.
+const CHAT_CONSENT_REV = 2;
+const chatConsentChecked = chrome.storage.sync
+  .get({ chatConsentRev: 1, chatConsent: false })
+  .then((st) => {
+    if (st.chatConsentRev >= CHAT_CONSENT_REV) return;
+    return chrome.storage.sync.set({ chatConsentRev: CHAT_CONSENT_REV, ...(st.chatConsent ? { chatConsent: false, chatEnabled: false } : {}) });
+  })
+  .catch(() => {});
 
 // Entries written under an older CACHE_PREFIX can never be read again.
 chrome.storage.local
@@ -336,7 +351,7 @@ async function ensureInjected(tabId, url) {
     });
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["src/themes.js", "src/scoring.js", "src/map-viewer.js", "src/charts.js", "src/dashboard.js", "src/recap.js", "src/chat.js", "src/content.js"],
+      files: ["src/themes.js", "src/scoring.js", "src/map-viewer.js", "src/charts.js", "src/dashboard.js", "src/timelapse.js", "src/recap.js", "src/chat.js", "src/content.js"],
     });
     // The map preview needs the page's own asset manifest and the lobby
     // element's gameConfig, neither of which an isolated world can see.
@@ -370,14 +385,29 @@ async function injectExisting() {
   }
 }
 
+// "5.6.1" < "5.7.0", numerically per part; anything unreadable counts as NOT before.
+function versionBefore(version, than) {
+  if (!/^\d+(\.\d+)*$/.test(String(version ?? ""))) return false;
+  const a = String(version).split(".").map(Number);
+  const b = than.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
 chrome.runtime.onInstalled.addListener(async (details) => {
   try {
     if (details.reason === "install") {
       // First run: say what is sent where, and ask, before anything is sent.
       await chrome.tabs.create({ url: chrome.runtime.getURL("src/welcome.html") });
-    } else if (details.reason === "update") {
-      // People already using the lookups before the consent screen existed keep
-      // them; the screen is there for new installs. (Chat consent is never assumed.)
+    } else if (details.reason === "update" && versionBefore(details.previousVersion, "5.7.0")) {
+      // People already using the lookups before the consent screen existed (it
+      // came with 5.7.0) keep them. Anyone else who has not answered - someone who
+      // closed the welcome tab, say - stays "not agreed" through every update.
+      // (Chat consent is never assumed.)
       const stored = await chrome.storage.sync.get(["dataConsent"]);
       if (stored.dataConsent === undefined) await chrome.storage.sync.set({ dataConsent: true });
     }
@@ -558,9 +588,11 @@ function normaliseRecord(data, gameId) {
 // script's connections answer to the page's CSP, and the signing key stays out
 // of any page. Each chat-enabled tab holds a port; closing it leaves the room.
 //
-// The relays are third parties. They see this browser's IP address and the
-// messages; they are told nothing else. Other players see only what is sent:
-// a name (unverified - anyone can type any name), a key fingerprint, the text.
+// The relays are third parties. They see this browser's IP address and
+// everything sent. Other players see what is sent: in the public room a name
+// (unverified - anyone can type any name), a key fingerprint and the text; with
+// the team channel in a team game also the player slot the key claims, whom it
+// verified, and encrypted team messages (docs/TEAM-CHAT.md lists what is public).
 const CHAT_RELAYS = [
   "wss://relay.primal.net",
   "wss://nos.lol",
@@ -595,6 +627,11 @@ chrome.storage.local.remove(CHAT_KEY).catch(() => {});
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "ofr-chat") return;
   let room = null;
+  let roomGameId = null;
+  let roomName = null;
+  let secretKey = null;
+  let team = null; // the verified-teammates channel of this room (team.js); team games only
+  let teamWanted = false; // the page says: a running team game, team channel switched on
   let joinSeq = 0; // a join awaits storage; a newer join (or a leave) supersedes it
   let name = "";
   let lastSent = 0;
@@ -609,15 +646,29 @@ chrome.runtime.onConnect.addListener((port) => {
       // the tab went away; onDisconnect cleans up
     }
   };
+  const closeTeam = () => {
+    if (!team) return;
+    team.close();
+    team = null;
+    post({ t: "team", state: null });
+  };
   const leave = () => {
+    closeTeam();
+    roomGameId = roomName = secretKey = null;
     if (!room) return;
+    const closing = room;
+    room = null;
     try {
-      room.publish("bye", "", name);
+      closing.publish("bye", "", name);
     } catch {
       // sockets already closing
     }
-    const closing = room;
-    room = null;
+    // Detach it now: for the 300 ms it lingers (and in its sockets' onclose), nothing
+    // from the old room may reach this tab or count against the next room's budget.
+    closing.onMessage = () => {};
+    closing.onStatus = () => {};
+    closing.accept = () => false;
+    post({ t: "status", open: 0, total: CHAT_RELAYS.length });
     setTimeout(() => closing.close(), 300); // let "bye" out first
   };
   const announce = () => {
@@ -625,24 +676,73 @@ chrome.runtime.onConnect.addListener((port) => {
     lastHere = Date.now();
     room.publish("here", "", name);
   };
+  // Rate limit shared by the public and the team box: one message per 1.2 s, twelve a minute.
+  const allowed = () => {
+    const now = Date.now();
+    sentTimes = sentTimes.filter((t) => now - t < 60000);
+    return !(now - lastSent < CHAT_MIN_GAP_MS || sentTimes.length >= CHAT_PER_MINUTE);
+  };
+  const spend = () => {
+    lastSent = Date.now();
+    sentTimes.push(lastSent);
+  };
+
+  // The team channel follows the page's request AND the setting, both of which can
+  // change mid-game; it lives and dies with the room it was made for.
+  async function syncTeam() {
+    const seq = joinSeq;
+    const mine = room;
+    if (!mine) return;
+    const on = teamWanted && (await getSettings()).chatTeam !== false;
+    if (seq !== joinSeq || room !== mine) return;
+    if (!on) return closeTeam();
+    if (team) return post({ t: "team", state: team.snapshot() });
+    // what the team channel must not forget if this worker is restarted mid-game:
+    // who I verified, which pairings were used up, the newest message per sender
+    const slot = `chatTeam:${roomName}`;
+    let saved = null;
+    try {
+      saved = (await chrome.storage.session.get(slot))[slot] ?? null;
+    } catch {
+      // no session storage: trust lasts as long as this connection
+    }
+    if (seq !== joinSeq || room !== mine || team) return;
+    const made = OFR_TEAM.create({
+      room: roomName,
+      secretKey,
+      saved,
+      save: (state) => chrome.storage.session.set({ [slot]: state }).catch(() => {}),
+      publish: (type, body) => (room === mine && team === made ? mine.publish(type, "", "", body).sent : 0),
+      onState: (state) => team === made && post({ t: "team", state }),
+      onMessage: (m) => team === made && post({ t: "team-msg", id: m.id, key: m.key, sid: m.sid, name: m.name, text: m.text, at: m.at }),
+    });
+    team = made;
+    post({ t: "team", state: team.snapshot() });
+  }
 
   port.onMessage.addListener(async (msg) => {
     if (msg?.t === "join") {
       leave();
+      teamWanted = false; // the page says again for this game (its "team" message follows the join)
       const seq = ++joinSeq;
       const gameId = String(msg.gameId ?? "");
       if (!/^[A-Za-z0-9]{4,16}$/.test(gameId)) return;
       name = String(msg.name ?? "").slice(0, OFR_NOSTR.MAX_NAME);
+      await chatConsentChecked; // an agreement to an older consent text does not count
       const settings = await getSettings();
+      if (seq !== joinSeq) return;
       if (!settings.chatEnabled || !settings.chatConsent) return; // checked here too, not only in the page
-      const secretKey = await chatSecretKey(OFR_NOSTR.roomOf(gameId));
+      const key = await chatSecretKey(OFR_NOSTR.roomOf(gameId));
       if (seq !== joinSeq) return; // left, or joined another room, while we were reading storage
-      post({ t: "me", pubkey: OFR_NOSTR.publicKeyOf(secretKey) });
+      post({ t: "me", pubkey: OFR_NOSTR.publicKeyOf(key) });
       let announced = false;
+      roomGameId = gameId;
+      roomName = OFR_NOSTR.roomOf(gameId);
+      secretKey = key;
       room = new OFR_NOSTR.Room({
         relays: CHAT_RELAYS,
-        room: OFR_NOSTR.roomOf(gameId),
-        secretKey,
+        room: roomName,
+        secretKey: key,
         onStatus: (status) => {
           post({ t: "status", open: status.open.length, total: status.total });
           if (status.open.length && !announced) {
@@ -661,28 +761,49 @@ chrome.runtime.onConnect.addListener((port) => {
           return ++inboundCount <= CHAT_INBOUND_PER_SEC;
         },
         onMessage: (m) => {
-          post({ t: m.type, id: m.id, pubkey: m.pubkey, name: m.name, text: m.text, at: m.at });
+          if (OFR_NOSTR.TEAM_TYPES.has(m.type)) team?.onEvent(m);
+          else post({ t: m.type, id: m.id, pubkey: m.pubkey, name: m.name, text: m.text, at: m.at });
         },
       });
+      syncTeam();
     } else if (msg?.t === "say") {
       if (!room) return post({ t: "sent", ok: false, why: "not connected" });
       const text = String(msg.text ?? "").trim().slice(0, OFR_NOSTR.MAX_TEXT);
       if (!text) return;
-      const now = Date.now();
-      sentTimes = sentTimes.filter((t) => now - t < 60000);
-      if (now - lastSent < CHAT_MIN_GAP_MS || sentTimes.length >= CHAT_PER_MINUTE) {
-        return post({ t: "sent", ok: false, why: "slow down" });
-      }
+      if (!allowed()) return post({ t: "sent", ok: false, why: "slow down" });
       const { sent, event } = room.publish("msg", text, name);
       if (!sent) return post({ t: "sent", ok: false, why: "no relay reachable" });
-      lastSent = now;
-      sentTimes.push(now);
+      spend();
       post({ t: "sent", ok: true, id: event.id, text, at: event.created_at * 1000, relays: sent });
+    } else if (msg?.t === "team") {
+      teamWanted = msg.on === true;
+      syncTeam();
+    } else if (msg?.t === "team-feed") {
+      // the page's view of the game (roster of my team, emojis between teammates), for this room's game only
+      if (team && msg.data && msg.data.gameId === roomGameId) {
+        team.feed(msg.data);
+        team.tick(); // about once a second: keeps the 45 s hello on time
+      }
+    } else if (msg?.t === "team-verify") {
+      team?.verify(String(msg.key ?? ""));
+    } else if (msg?.t === "team-cancel") {
+      team?.cancel();
+    } else if (msg?.t === "team-say") {
+      const mine = team;
+      if (!room || !mine) return post({ t: "team-sent", ok: false, why: "not connected" });
+      const text = String(msg.text ?? "").trim().slice(0, OFR_NOSTR.MAX_TEXT);
+      if (!text) return;
+      if (!allowed()) return post({ t: "team-sent", ok: false, why: "slow down" });
+      const result = await mine.say(text);
+      if (mine !== team) return; // left that game while encrypting
+      if (result.ok) spend(); // a refused send does not use up the budget
+      post({ t: "team-sent", ...result, text });
     } else if (msg?.t === "name") {
       name = String(msg.name ?? "").slice(0, OFR_NOSTR.MAX_NAME);
     } else if (msg?.t === "ping") {
       // Keeps this worker awake while a chat is open, and paces the presence beat.
       if (room && Date.now() - lastHere > CHAT_PRESENCE_MS) announce();
+      team?.tick();
       post({ t: "pong" });
     } else if (msg?.t === "leave") {
       joinSeq++;
@@ -720,13 +841,19 @@ function onMessage(msg, _sender, sendResponse) {
   }
   if (msg?.type === "notify") {
     // Only used when the OpenFront tab is in the background, so a watched
-    // player joining your lobby still reaches you.
-    chrome.notifications.create({
-      type: "basic",
-      iconUrl: chrome.runtime.getURL("icons/icon128.png"),
-      title: String(msg.title ?? "OpenFront Pro").slice(0, 80),
-      message: String(msg.message ?? "").slice(0, 200),
-    });
+    // player joining your lobby still reaches you. Follows the same switch as
+    // the sound ("Sound and notification"), checked here too.
+    getSettings()
+      .then((st) => {
+        if (!st.enabled || !st.soundAlerts) return;
+        chrome.notifications.create({
+          type: "basic",
+          iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+          title: String(msg.title ?? "OpenFront Pro").slice(0, 80),
+          message: String(msg.message ?? "").slice(0, 200),
+        });
+      })
+      .catch(() => {});
     return false;
   }
   if (msg?.type === "openSettings") {

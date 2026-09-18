@@ -69,10 +69,12 @@ let settings = {
   soundAlerts: true,
   autoCopyReport: false,
   dataConsent: false,
+  timelapse: true,
   chatEnabled: false,
   chatConsent: false,
   chatInFfa: false,
   chatFilter: true,
+  chatTeam: true,
   layout: "cards",
   uiSize: "medium",
   siteLayout: "default",
@@ -99,13 +101,17 @@ const SITE_LAYOUTS = new Set(["default", "wide", "sidebar", "focus"]);
 // The extension's settings, inside the page: the popup's own document in an
 // iframe (it is an extension page, so it keeps full access to chrome.*). Opened
 // from the account dropdown, the home card and the dashboard.
+let closeSettingsOverlay = null;
 function openSettings() {
   if (globalThis.__ofrLauncher) {
-    // no extension pages inside the game's window: settings open in your browser
-    chrome.runtime.sendMessage({ type: "openSettings" }).catch(() => {});
+    // No extension pages inside the game's window. The launcher mounts the same
+    // settings into a shadow root here; a browser tab is the fallback.
+    if (typeof globalThis.__ofrOpenSettingsInPage === "function") globalThis.__ofrOpenSettingsInPage();
+    else chrome.runtime.sendMessage({ type: "openSettings" }).catch(() => {});
     return;
   }
-  document.querySelector(".ofr-settings")?.remove();
+  closeSettingsOverlay?.();
+  document.querySelector(".ofr-settings")?.remove(); // one a previous copy of this script left
   const overlay = document.createElement("div");
   overlay.className = "ofr-settings";
   const box = document.createElement("div");
@@ -134,7 +140,9 @@ function openSettings() {
   const destroy = () => {
     document.removeEventListener("keydown", onKey, true);
     overlay.remove();
+    if (closeSettingsOverlay === destroy) closeSettingsOverlay = null;
   };
+  closeSettingsOverlay = destroy;
   document.addEventListener("keydown", onKey, true);
   close.addEventListener("click", destroy);
   overlay.addEventListener("click", (e) => {
@@ -169,6 +177,7 @@ function installAccountMenuItem() {
   item.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!e.isTrusted) return; // a person opens the settings, never a page script
     // close their menu the way Escape does, then open ours
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     openSettings();
@@ -187,6 +196,7 @@ function isSelf(name) {
 // Opens the Pro dashboard (dashboard.js) for a player, with their clan when
 // the lobby has told us one.
 function openDashboard(name) {
+  if (!settings.enabled) return; // "everything off" means the dashboard too
   if (!settings.dataConsent) {
     // the dashboard is made of lookups; ask first
     chrome.runtime.sendMessage({ type: "openWelcome" }).catch(() => {});
@@ -208,6 +218,11 @@ function openDashboard(name) {
 // The stats card on the front page, placed right under the username field.
 // Only on the front page: inside a game there is no username field anyway.
 function installHomeWidget() {
+  if (!settings.enabled || !settings.dataConsent) {
+    // "Everything off", or lookups not agreed: no card, so no lookup of your name
+    document.querySelector(".ofr-home")?.remove();
+    return;
+  }
   if (currentGameId()) return;
   if (typeof globalThis.__ofrHomeWidget !== "function") return;
   // The username field sits in a horizontal strip (tag / name / "use
@@ -299,6 +314,14 @@ function icon(name) {
 // same id unless "Recolour OpenFront too" is off, restyles OpenFront itself
 // (page-themes.css, generated from the same catalogue entry). Classic is the
 // game's own look, so it sets neither.
+// page-probe.js records timelapse frames only while this says "on" - and only
+// when something can show them: the recap is where the timelapse lives, and the
+// recap needs lookups agreed and the recap switched on.
+function applyLapse() {
+  const shown = settings.showRecap !== false && settings.dataConsent === true;
+  document.documentElement.dataset.ofrLapse = settings.enabled && settings.timelapse !== false && shown ? "on" : "off";
+}
+
 function applyTheme() {
   const root = document.documentElement;
   const theme = THEMES[settings.theme] ? settings.theme : "classic";
@@ -618,7 +641,7 @@ const MISSING_TOOLTIP = {
   guest:
     "A generated guest name (this player never set one). Thousands of players share these names, so no rank can belong to it.",
   "no-history": "No finished public games on ofstats.io yet.",
-  error: "ofstats.io could not be reached. It will retry.",
+  error: "ofstats.io could not be reached. It is asked again after 30 minutes.",
 };
 
 function formatMissing(placeholder, info) {
@@ -842,6 +865,7 @@ function winModalRect() {
 let recapWidget = null;
 let lastRecap = null; // the model on screen
 let lastRecord = null; // ...and the record behind it, to re-read when streamer mode flips
+let lastRecordGame = null; // ...and the game it belongs to
 globalThis.__ofrRecapModel = () => lastRecap; // dev tools (tools/cdp-recap.mjs) read it from the isolated world
 const RECAP_MIN_KEY = "recapCollapsed";
 
@@ -1015,6 +1039,8 @@ async function loadRecap(gameId) {
   const widget = R.createWidget({
     icon,
     startMin,
+    gameId,
+    streamer: settings.streamerMode === true,
     avoidRect: winModalRect,
     onDashboard: () => openDashboard(selfName()),
     onToggle: (min) => {
@@ -1058,6 +1084,7 @@ async function loadRecap(gameId) {
       let model = R.analyse(record, recapContext(gameId));
       rememberPublicId(model);
       lastRecord = record;
+      lastRecordGame = gameId;
       lastRecap = model;
       if (widget.el.isConnected) widget.setModel(model);
       await recordSession(model, gameId, seenAt);
@@ -1239,7 +1266,7 @@ function announceWatched() {
     const text = `${icon("star")} ${entry.name} is in this lobby${rank ? ` (Top ${formatPercent(rank.pct)}%)` : ""}`;
     toast(text);
     playAlert();
-    if (document.hidden) {
+    if (document.hidden && settings.soundAlerts) {
       try {
         chrome.runtime.sendMessage({
           type: "notify",
@@ -1446,7 +1473,8 @@ function renderSummary() {
       chip.type = "button";
       chip.className = "ofr-clan-chip";
       chip.textContent = `[${g.tag}] x${g.n} Top ${formatPercent(g.avg)}%`;
-      chip.title = `Clan ${g.tag}: ${g.names.join(", ")} - click for clan stats`;
+      const names = settings.streamerMode ? g.names.map((n) => (isSelf(n) ? "You" : n)) : g.names;
+      chip.title = `Clan ${g.tag}: ${names.join(", ")} - click for clan stats`;
       chip.dataset.ofrClan = g.tag;
       chip.dataset.ofrLead = g.names[0];
       el.insertBefore(chip, copy);
@@ -1463,9 +1491,12 @@ window.addEventListener(
     e.preventDefault();
     e.stopPropagation();
     if (typeof globalThis.__ofrOpenDashboard === "function") {
-      globalThis.__ofrOpenDashboard(chip.dataset.ofrLead, {
+      const lead = chip.dataset.ofrLead;
+      globalThis.__ofrOpenDashboard(lead, {
         clan: chip.dataset.ofrClan,
         clanStats: true,
+        self: !!lead && isSelf(lead),
+        streamer: settings.streamerMode,
       });
     }
   },
@@ -1666,6 +1697,9 @@ function syncChat() {
     mode: playing && !/team/i.test(game?.mode ?? lastLobbyMode ?? "") && !settings.chatInFfa ? "paused" : "open",
     phase: lobbyId && !game?.running ? "lobby" : over || game?.alive === false ? "after" : "game",
     filter: settings.chatFilter !== false,
+    // Team games: a second, encrypted tab for teammates verified through the game (team.js).
+    team: settings.chatTeam !== false && game?.running === true && /team/i.test(game.mode ?? ""),
+    teamGame: game?.running === true && /team/i.test(game.mode ?? ""), // masking in the public tab, channel on or not
   });
 }
 
@@ -1887,6 +1921,7 @@ const mapObserver = new MutationObserver(() => {
   if (!alive()) return;
   noteClientId();
   syncChat(); // the lobby id and the playing / out state both arrive this way
+  if (!settings.enabled) return; // "everything off": no map preview, no auto-copy
   renderMapPreview();
   checkAutoCopy();
 });
@@ -1900,12 +1935,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (key in settings) settings[key] = change.newValue;
   }
   if (changes.theme || changes.themeSite) applyTheme();
+  if (changes.timelapse || changes.enabled || changes.showRecap || changes.dataConsent) applyLapse();
   if (changes.theme) recapWidget?.refresh();
-  if (changes.enabled || changes.chatEnabled || changes.chatConsent || changes.chatInFfa || changes.chatFilter || changes.streamerMode) syncChat();
-  if (changes.streamerMode && lastRecord && recapWidget?.el.isConnected && globalThis.OFR_RECAP) {
-    lastRecap = globalThis.OFR_RECAP.analyse(lastRecord, recapContext());
-    recapWidget.setModel(lastRecap);
+  if (changes.enabled || changes.chatEnabled || changes.chatConsent || changes.chatInFfa || changes.chatFilter || changes.chatTeam || changes.streamerMode) syncChat();
+  if (changes.streamerMode && recapWidget?.el.isConnected) {
+    recapWidget.setStreamer?.(settings.streamerMode === true); // the timelapse too, with or without a record
+    // only the record of the game this recap is about (a previous game's must not come back)
+    if (lastRecord && lastRecordGame === currentGameId() && recapWidget.model && globalThis.OFR_RECAP) {
+      lastRecap = globalThis.OFR_RECAP.analyse(lastRecord, recapContext(lastRecordGame));
+      recapWidget.setModel(lastRecap);
+    }
   }
+  if (changes.enabled || changes.dataConsent) installHomeWidget();
   if (changes.layout || changes.uiSize || changes.siteLayout) applyLayout();
   clearDecorations();
   if (settings.enabled) scheduleRefresh();
@@ -1926,11 +1967,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 
   applyTheme();
+  applyLapse();
   applyLayout();
   installNavButton();
   installHomeWidget();
   // games whose end screen an earlier page saw before OpenFront archived them
-  if (settings.showRecap) resolvePendingRecaps(currentGameId()).catch(() => {});
+  if (settings.enabled && settings.dataConsent && settings.showRecap) resolvePendingRecaps(currentGameId()).catch(() => {});
 
   let version = "?";
   try {

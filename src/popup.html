@@ -5,164 +5,251 @@
     <link rel="stylesheet" href="content.css" />
     <style>
       body {
-        width: 250px;
+        width: 360px;
         margin: 0;
-        padding: 12px;
+        padding: 0 0 12px;
         font: 13px/1.4 var(--ofr-ui-font);
         background: var(--ofr-stage-bg);
         color: var(--ofr-text);
       }
-      h1 { margin: 0 0 10px; font-size: 13px; }
-      label { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
-      button {
-        width: 100%;
-        margin-top: 10px;
-        padding: 6px;
-        border: 1px solid var(--ofr-btn-border);
-        border-radius: var(--ofr-panel-radius);
-        background: var(--ofr-btn-bg);
-        color: inherit;
-        cursor: pointer;
-      }
-      button:hover { background: var(--ofr-btn-hover); }
-      p { margin: 10px 0 0; font-size: 11px; color: var(--ofr-text-dim); }
-      .disclaimer { margin: -6px 0 8px; font-size: 10px; color: var(--ofr-text-dim); }
+      html { overflow-x: hidden; }
+      body { box-sizing: border-box; max-width: 100%; }
       html.embedded body { width: auto; }
-      .warn { color: var(--ofr-strong); }
-      .warn-note { margin: 2px 0 6px; font-size: 10px; color: var(--ofr-text-dim); }
-      h2 { margin: 12px 0 4px; font-size: 12px; }
+      a { color: var(--ofr-average); }
+      p { margin: 8px 0 0; font-size: 11px; color: var(--ofr-text-dim); }
+
+      /* header: name, what it is, and the one switch that turns everything off */
+      .top { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px; }
+      .top img { width: 32px; height: 32px; border-radius: 8px; }
+      .top .who { flex: 1; min-width: 0; }
+      .top h1 { margin: 0; font-size: 15px; line-height: 1.2; }
+      .top .disclaimer { font-size: 10.5px; color: var(--ofr-text-dim); }
+
+      /* tabs */
+      .tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--ofr-panel-border); }
+      .tabs button {
+        flex: 1; margin: 0; padding: 7px 2px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+        background: none; color: var(--ofr-text-dim); font: 600 12px var(--ofr-ui-font); cursor: pointer;
+      }
+      .tabs button:hover { color: var(--ofr-text); background: none; }
+      .tabs button[aria-selected="true"] { color: var(--ofr-text); border-bottom-color: var(--ofr-accent); }
+      .pane { display: none; padding: 4px 14px 0; }
+      .pane[data-on="true"] { display: block; }
+
+      /* groups and rows */
+      h2 { margin: 14px 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ofr-text-dim); }
+      h2 small { font-weight: 400; letter-spacing: 0; text-transform: none; }
+      .card { border: 1px solid var(--ofr-panel-border); border-radius: calc(var(--ofr-panel-radius) + 2px); background: var(--ofr-panel-soft); overflow: hidden; }
+      .card > label, .card > .field { display: flex; align-items: center; gap: 12px; margin: 0; padding: 9px 12px; }
+      .card > * + * { border-top: 1px solid var(--ofr-panel-border); }
+      .card .txt { flex: 1; min-width: 0; }
+      .card .txt b { display: block; font-weight: 600; }
+      .card .txt small { display: block; margin-top: 1px; font-size: 11px; line-height: 1.35; color: var(--ofr-text-dim); }
+      label.warn .txt b { color: var(--ofr-strong); }
+      label.off, .field.off { opacity: 0.5; }
+
+      /* a checkbox drawn as a switch (still a checkbox: keyboard and screen readers unchanged) */
+      input[type="checkbox"] {
+        appearance: none; flex: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: 999px;
+        background: var(--ofr-btn-border); cursor: pointer; transition: background 0.15s;
+      }
+      input[type="checkbox"]::after {
+        content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+        background: var(--ofr-text); transition: transform 0.15s;
+      }
+      input[type="checkbox"]:checked { background: var(--ofr-accent); }
+      input[type="checkbox"]:checked::after { transform: translateX(14px); background: var(--ofr-stage-bg); }
+      input[type="checkbox"]:focus-visible { outline: 2px solid var(--ofr-average); outline-offset: 2px; }
+      input[type="checkbox"]:disabled { cursor: default; }
+      @media (prefers-reduced-motion: reduce) { input[type="checkbox"], input[type="checkbox"]::after { transition: none; } }
+
       select {
-        width: 100%; padding: 4px; border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-panel-radius);
+        max-width: 190px; padding: 5px 6px; border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-panel-radius);
         background: var(--ofr-btn-bg); color: inherit; font: inherit;
       }
-      #theme-preview {
-        display: flex; flex-wrap: wrap; gap: 4px 0; margin: 8px 0 4px;
-        padding: 8px 6px; border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-soft);
+      .field.stack { display: block; }
+      .field.stack select { width: 100%; max-width: none; margin-top: 6px; }
+
+      button {
+        margin-top: 8px; padding: 7px 10px; border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-panel-radius);
+        background: var(--ofr-btn-bg); color: inherit; font: inherit; cursor: pointer;
       }
+      button:hover { background: var(--ofr-btn-hover); }
+      .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+      .buttons button { flex: 1; white-space: nowrap; }
+
+      #theme-preview { display: flex; flex-wrap: wrap; gap: 4px 0; padding: 10px 8px; }
       #theme-preview .ofr-badge { margin-left: 4px; cursor: default; }
-      h2 small { font-weight: 400; color: var(--ofr-text-dim); font-size: 10px; }
-      #watchlist { list-style: none; margin: 0; padding: 0; max-height: 120px; overflow-y: auto; }
-      #watchlist li {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 2px 0; color: var(--ofr-accent); font-size: 12px;
-      }
-      #watchlist li button {
-        width: auto; margin: 0; padding: 0 6px;
-        border: 0; background: none; color: var(--ofr-text-dim); cursor: pointer;
-      }
-      #watchlist .empty { color: var(--ofr-muted); font-style: italic; }
-      #status {
-        margin-top: 10px;
-        padding: 7px;
-        border: 1px solid var(--ofr-panel-border);
-        border-radius: var(--ofr-panel-radius);
-        font-size: 11px;
-        line-height: 1.45;
-        white-space: pre-wrap;
-        background: var(--ofr-panel-soft);
-      }
-      #status b { color: var(--ofr-text); }
-      .bad { color: var(--ofr-elite); }
-      .good { color: var(--ofr-good); }
-      a { color: var(--ofr-average); }
-      input[type="checkbox"] { accent-color: var(--ofr-accent); }
-      label.off { opacity: 0.5; }
-      .consent { margin: 6px 0 8px; padding: 8px; border: 1px solid var(--ofr-accent); border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-soft); font-size: 11px; }
+      .warn-note { margin: 6px 2px 0; font-size: 10.5px; color: var(--ofr-text-dim); }
+
+      .consent { margin: 8px 0; padding: 10px; border: 1px solid var(--ofr-accent); border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-soft); font-size: 11px; }
       .consent ul { margin: 6px 0; padding-left: 16px; }
       .consent li { margin: 4px 0; }
       .consent .row { display: flex; gap: 6px; }
-      .consent .row button { margin-top: 8px; }
-      #consent-banner { margin: 0 0 10px; }
+      #consent-banner { margin: 10px 14px 0; }
+
+      #watchlist { list-style: none; margin: 0; padding: 0; max-height: 140px; overflow-y: auto; }
+      #watchlist li { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; color: var(--ofr-accent); font-size: 12px; }
+      #watchlist li + li { border-top: 1px solid var(--ofr-panel-border); }
+      #watchlist li button { width: auto; margin: 0; padding: 0 6px; border: 0; background: none; color: var(--ofr-text-dim); }
+      #watchlist .empty { color: var(--ofr-muted); font-style: italic; }
+      #status { padding: 9px 12px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
+      #status b { color: var(--ofr-text); }
+      .bad { color: var(--ofr-elite); }
+      .good { color: var(--ofr-good); }
     </style>
   </head>
   <body>
-    <h1>OpenFront Pro</h1>
-    <div class="disclaimer">Unofficial — not affiliated with OpenFront.</div>
+    <div class="top">
+      <img src="../icons/icon48.png" alt="" />
+      <div class="who">
+        <h1>OpenFront Pro</h1>
+        <div class="disclaimer">Unofficial — not affiliated with OpenFront.</div>
+      </div>
+      <input type="checkbox" id="enabled" title="Everything on / off" aria-label="Enable OpenFront Pro" />
+    </div>
     <div id="consent-banner" class="consent" hidden>
-      <b>Rank lookups are off.</b> To show ranks, player names from your lobby are looked up at api.ofstats.io (a third-party service). Nothing is sent until you agree.
+      <b>Rank lookups are off.</b> To show ranks, player names from your lobby and game (yours included) are looked up at api.ofstats.io (a third-party service). Nothing is sent until you agree.
       <div class="row"><button id="consent-open" type="button">Read and turn on</button></div>
     </div>
-    <h2>Theme <small id="theme-blurb"></small></h2>
-    <select id="theme"></select>
-    <div id="theme-preview">
-      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="elite"></span>
-      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="strong"></span>
-      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="good"></span>
-      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="average"></span>
-      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="low"></span>
-      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-watched="true"></span>
-      <span class="ofr-badge" data-ofr-kind="missing">guest</span>
+
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="look">Look</button>
+      <button type="button" role="tab" data-tab="lobby">Lobby</button>
+      <button type="button" role="tab" data-tab="game">Game</button>
+      <button type="button" role="tab" data-tab="chat">Chat</button>
+      <button type="button" role="tab" data-tab="about">About</button>
     </div>
-    <label id="themeSite-row"><input type="checkbox" id="themeSite" /> Recolour OpenFront too</label>
-    <p class="warn-note" id="themeSite-note">One theme for everything: badges, cards, dashboard, recap, this panel and, with this on, OpenFront's own pages.</p>
-    <h2>Website layout</h2>
-    <select id="siteLayout">
-      <option value="default">Default - OpenFront as designed</option>
-      <option value="wide">Wide - use the whole window, bigger maps</option>
-      <option value="sidebar">Sidebar - navigation as a left rail</option>
-      <option value="focus">Focus - one column, no news or streams</option>
-    </select>
-    <h2>Pro card layout</h2>
-    <select id="layout">
-      <option value="cards">Cards - stat tiles under the username field (default)</option>
-      <option value="compact">Compact - one-line card, small badges, dense dashboard</option>
-      <option value="panel">Panel - card docked on the right, dashboard as a side drawer</option>
-    </select>
-    <h2>Size</h2>
-    <select id="uiSize">
-      <option value="small">Small (85%)</option>
-      <option value="medium">Medium</option>
-      <option value="large">Large (120%)</option>
-      <option value="xlarge">Extra large (140%)</option>
-    </select>
-    <label><input type="checkbox" id="enabled" /> Show ranks (lobby + in-game hover)</label>
-    <label><input type="checkbox" id="showGames" /> Show game count (12.5% WR · 48)</label>
-    <label><input type="checkbox" id="explainMissing" /> Mark names that cannot be ranked</label>
-    <label><input type="checkbox" id="showSummary" /> Lobby &amp; team summary line</label>
-    <label><input type="checkbox" id="markThreats" /> Outline the strongest players</label>
-    <label><input type="checkbox" id="showMapPreview" /> Map preview in the lobby</label>
-    <label><input type="checkbox" id="showMapRank" /> Skill on this map (&#x1F5FA;)</label>
-    <label><input type="checkbox" id="showForm" /> Hot / cold form (&#x1F525; &#x2744;)</label>
-    <label><input type="checkbox" id="flagSmurfs" /> Flag possible smurfs (&#x26A0;)</label>
-    <label><input type="checkbox" id="showRecap" /> Recap after each game</label>
-    <label><input type="checkbox" id="clanStats" /> Clan stats (dashboard + lobby chips)</label>
-    <label><input type="checkbox" id="soundAlerts" /> Sound when a watched player joins</label>
-    <label><input type="checkbox" id="streamerMode" /> Streamer mode (hide my rank, blur my name)</label>
-    <label><input type="checkbox" id="autoCopyReport" /> Copy scouting report at 10s on the countdown</label>
-    <p class="warn-note" id="autoCopy-lock" hidden>Needs a permission that can only be granted from the toolbar popup.</p>
-    <h2>Clicking a badge opens</h2>
-    <select id="profileLink">
-      <option value="dashboard">In-page stats (Pro dashboard)</option>
-      <option value="none">Nothing</option>
-    </select>
-    <h2>Chat <small>beta - off by default</small></h2>
-    <label><input type="checkbox" id="chatEnabled" /> Chat with other OpenFront Pro players in your lobby / game</label>
-    <p class="warn-note" id="chatEnabled-lock" hidden>Chat switches can only be changed from the toolbar popup (click the extension's icon).</p>
-    <div id="chat-consent" class="consent" hidden>
-      <b>Before chat turns on</b>
-      <ul>
-        <li>Your messages, your OpenFront name and clan tag (or "Player" in streamer mode) and a throw-away key for that game are sent to four public Nostr relays: relay.primal.net, nos.lol, nostr.mom, relay.snort.social. They are third parties and see your IP address.</li>
-        <li>The chat is <b>public</b>: anyone connected to those relays can read the room, and nobody can promise a relay keeps nothing. Your name is announced to the room while chat is on, even if you do not type.</li>
-        <li>Names are not verified. Be decent; do not share personal information. You can mute anyone, and report abuse from the chat panel.</li>
-      </ul>
-      <a href="https://github.com/devdanetra/openfront-pro/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a>
-      <div class="row"><button id="chat-agree" type="button">I agree - turn chat on</button><button id="chat-cancel" type="button">Cancel</button></div>
+
+    <div class="pane" data-pane="look">
+      <h2>Theme <small id="theme-blurb"></small></h2>
+      <div class="card">
+        <div class="field stack">
+          <select id="theme"></select>
+          <div id="theme-preview">
+            <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="elite"></span>
+            <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="strong"></span>
+            <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="good"></span>
+            <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="average"></span>
+            <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="low"></span>
+            <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-watched="true"></span>
+            <span class="ofr-badge" data-ofr-kind="missing">guest</span>
+          </div>
+        </div>
+        <label id="themeSite-row"><span class="txt"><b>Recolour OpenFront too</b><small id="themeSite-note">One theme for everything: badges, cards, dashboard, recap, this panel and the site's own pages.</small></span><input type="checkbox" id="themeSite" /></label>
+      </div>
+      <h2>Layout</h2>
+      <div class="card">
+        <div class="field"><span class="txt"><b>Website</b><small>Re-arranges the front page. Ads are never hidden.</small></span>
+          <select id="siteLayout">
+            <option value="default">Default</option>
+            <option value="wide">Wide - bigger maps</option>
+            <option value="sidebar">Sidebar - left rail</option>
+            <option value="focus">Focus - one column</option>
+          </select>
+        </div>
+        <div class="field"><span class="txt"><b>Pro card</b><small>Your stats on the front page</small></span>
+          <select id="layout">
+            <option value="cards">Cards</option>
+            <option value="compact">Compact</option>
+            <option value="panel">Panel - docked right</option>
+          </select>
+        </div>
+        <div class="field"><span class="txt"><b>Size</b></span>
+          <select id="uiSize">
+            <option value="small">Small (85%)</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large (120%)</option>
+            <option value="xlarge">Extra large (140%)</option>
+          </select>
+        </div>
+      </div>
     </div>
-    <label><input type="checkbox" id="chatFilter" /> Mask slurs and the like</label>
-    <label class="warn"><input type="checkbox" id="chatInFfa" /> Also while I am alive in a free-for-all</label>
-    <p class="warn-note">Chat is always open in the lobby, after the game and during team games. In a free-for-all it pauses while you are alive: OpenFront's terms forbid outside channels for coordinating there. Turning this on is your call and your risk.</p>
-    <h2>Watchlist <small>Shift+click a badge to add</small></h2>
-    <ul id="watchlist"></ul>
-    <div id="status">Checking…</div>
-    <button id="inject">Enable on openfront.io</button>
-    <button id="clear">Clear cached ranks</button>
-    <button id="consent-off" hidden>Turn rank lookups off</button>
-    <p>
-      Ranks come from public-game stats on
-      <a href="https://ofstats.io/" target="_blank">ofstats.io</a>, matched by
-      name. Players marked <b>hidden</b> mean OpenFront’s "Hidden Names"
-      setting is on — turn it off in OpenFront to see everyone.
-    </p>
+
+    <div class="pane" data-pane="lobby">
+      <h2>Rank badges</h2>
+      <div class="card">
+        <label><span class="txt"><b>Game count</b><small>"12.5% WR · 48" for players with too few games to rank</small></span><input type="checkbox" id="showGames" /></label>
+        <label><span class="txt"><b>Mark unrankable names</b><small>guest, hidden, no public games</small></span><input type="checkbox" id="explainMissing" /></label>
+        <label><span class="txt"><b>Skill on this map</b><small>&#x1F5FA; next to players who are better or worse here</small></span><input type="checkbox" id="showMapRank" /></label>
+        <label><span class="txt"><b>Hot / cold form</b><small>&#x1F525; &#x2744; from the last ten games</small></span><input type="checkbox" id="showForm" /></label>
+        <label><span class="txt"><b>Possible smurfs</b><small>&#x26A0; few games, far more wins than expected</small></span><input type="checkbox" id="flagSmurfs" /></label>
+        <div class="field"><span class="txt"><b>Clicking a badge</b></span>
+          <select id="profileLink">
+            <option value="dashboard">Opens their stats</option>
+            <option value="none">Does nothing</option>
+          </select>
+        </div>
+      </div>
+      <h2>Scouting</h2>
+      <div class="card">
+        <label><span class="txt"><b>Lobby &amp; team summary</b><small>average strength, clan groups, copyable report</small></span><input type="checkbox" id="showSummary" /></label>
+        <label><span class="txt"><b>Outline the strongest</b></span><input type="checkbox" id="markThreats" /></label>
+        <label><span class="txt"><b>Map preview</b><small>with a zoomable terrain view</small></span><input type="checkbox" id="showMapPreview" /></label>
+        <label><span class="txt"><b>Clan stats</b><small>dashboard section and lobby chips</small></span><input type="checkbox" id="clanStats" /></label>
+        <label><span class="txt"><b>Copy the report at 10 s</b><small>overwrites your clipboard when the countdown hits ten</small></span><input type="checkbox" id="autoCopyReport" /></label>
+      </div>
+      <p class="warn-note" id="autoCopy-lock" hidden>Auto-copy needs a permission that can only be granted from the toolbar popup.</p>
+      <h2>Watchlist <small>Shift+click a badge to add</small></h2>
+      <div class="card">
+        <ul id="watchlist"></ul>
+        <label><span class="txt"><b>Sound and notification</b><small>when a watched player joins your lobby</small></span><input type="checkbox" id="soundAlerts" /></label>
+      </div>
+    </div>
+
+    <div class="pane" data-pane="game">
+      <h2>After the game</h2>
+      <div class="card">
+        <label><span class="txt"><b>Game recap</b><small>result, your numbers ranked in the lobby, graphs, awards, share image</small></span><input type="checkbox" id="showRecap" /></label>
+        <label><span class="txt"><b>Timelapse</b><small>records the whole map during the game (while the recap is on); save it as a video or GIF from the recap. Stays in memory, never uploaded.</small></span><input type="checkbox" id="timelapse" /></label>
+      </div>
+      <h2>Streaming</h2>
+      <div class="card">
+        <label><span class="txt"><b>Streamer mode</b><small>hides your own name and rank everywhere, chat included - except that in team games the team channel still announces your player slot, which anyone in that game can match to your name</small></span><input type="checkbox" id="streamerMode" /></label>
+      </div>
+    </div>
+
+    <div class="pane" data-pane="chat">
+      <h2>Chat <small>beta - off by default</small></h2>
+      <div class="card">
+        <label><span class="txt"><b>Chat with other Pro players</b><small>one public room per lobby / game, over third-party Nostr relays</small></span><input type="checkbox" id="chatEnabled" /></label>
+        <label><span class="txt"><b>Mask slurs and the like</b></span><input type="checkbox" id="chatFilter" /></label>
+        <label><span class="txt"><b>Encrypted team channel</b><small>Team games: a second tab whose text is encrypted to teammates verified through the game, by you or through a chain of teammates who verified each other (you verify each other by sending three emojis in the game). Who takes part is public, and a script in OpenFront's page could fake a verification.</small></span><input type="checkbox" id="chatTeam" /></label>
+        <label class="warn"><span class="txt"><b>Also while alive in a free-for-all</b><small>OpenFront's terms forbid outside channels for coordinating there. Your call, your risk.</small></span><input type="checkbox" id="chatInFfa" /></label>
+      </div>
+      <p class="warn-note" id="chatEnabled-lock" hidden>Chat (and the free-for-all override) can only be switched on from the toolbar popup: click the extension's icon. Here they can only be switched off.</p>
+      <div id="chat-consent" class="consent" hidden>
+        <b>Before chat turns on</b>
+        <ul>
+          <li>Your messages, your OpenFront name and clan tag (or "Player" in streamer mode), a throw-away key for that game and a room tag that identifies the game are sent to four public Nostr relays: relay.primal.net, nos.lol, nostr.mom, relay.snort.social. They are third parties and see your IP address.</li>
+          <li>The chat is <b>public</b>: anyone connected to those relays can read the room, and nobody can promise a relay keeps nothing. Your name is announced to the room while chat is on, even if you do not type (not while it is paused in a free-for-all: then the tab leaves the room).</li>
+          <li>In team games, with "Encrypted team channel" on (the default): from the start of the game and about every 45 s, with no click, your key tells the room which player slot of that game it is, which teammates' keys you verified, and any key that claimed to be you. Pressing Verify publishes a handshake naming that teammate's key and both player slots. Team messages are encrypted to teammates verified through the game - by you, or through a chain of teammates who verified each other (up to about eight steps); anyone in that chain can therefore let someone else read them. Only the text is encrypted: the room sees who sent each message, to which keys, when, and roughly how long it is. In streamer mode too, anyone in the game can match your slot to your name.</li>
+          <li>A script running in OpenFront's page (its ad scripts included) could fake what the game shows the extension, get its own key verified as your teammate once you press Verify on it, and then read the team channel. The same goes for the page of any teammate in that chain, without any click of yours. The extension cannot prevent that.</li>
+          <li>Names in the public room are not verified. Be decent; do not share personal information. You can mute anyone, and report abuse from the chat panel.</li>
+        </ul>
+        <a href="https://github.com/devdanetra/openfront-pro/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a>
+        <div class="row"><button id="chat-agree" type="button">I agree - turn chat on</button><button id="chat-cancel" type="button">Cancel</button></div>
+      </div>
+      <p class="warn-note">Always open in the lobby, after the game and during team games. No server of ours: the relays see your IP address and what you send; other players see your name, your text and a throw-away key for that game (in team games also the player slot it claims and whom it verified), never your IP address.</p>
+    </div>
+
+    <div class="pane" data-pane="about">
+      <h2>Status</h2>
+      <div class="card"><div id="status">Checking…</div></div>
+      <div class="buttons">
+        <button id="inject" type="button">Enable on openfront.io</button>
+        <button id="clear" type="button">Clear cached ranks</button>
+        <button id="consent-off" type="button" hidden>Turn rank lookups off</button>
+      </div>
+      <p>
+        Ranks come from public-game stats on
+        <a href="https://ofstats.io/" target="_blank" rel="noopener">ofstats.io</a>, matched by
+        name. Players marked <b>hidden</b> mean OpenFront’s "Hidden Names"
+        setting is on — turn it off in OpenFront to see everyone.
+      </p>
+      <p><a href="https://github.com/devdanetra/openfront-pro/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a> · <a href="https://github.com/devdanetra/openfront-pro" target="_blank" rel="noopener">Source (MIT)</a> · <a href="https://github.com/devdanetra/openfront-pro/issues" target="_blank" rel="noopener">Report a problem</a></p>
+    </div>
+
     <script src="themes.js"></script>
     <script src="popup.js"></script>
   </body>

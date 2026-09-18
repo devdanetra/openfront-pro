@@ -10,8 +10,14 @@
 //   - names are NOT verified (anyone can type any name), so each one carries a
 //     short fingerprint of the sender's key, and no rank badge is ever attached;
 //   - it runs during the game too (one room for everyone with the extension in
-//     that game, so it is not a private channel); a switch pauses it while you
-//     are alive in a running game, and then the panel shows nothing at all;
+//     that game, so it is not a private channel); while you are alive in a
+//     free-for-all it pauses (unless switched on there too): the tab leaves the
+//     room altogether - nothing sent or received - and the panel shows nothing;
+//   - team games add a second tab: the message text is encrypted to teammates
+//     who were verified THROUGH THE GAME, by the user or through a chain of
+//     teammates who verified each other (docs/TEAM-CHAT.md; src/team.js in the service
+//     worker). This file shows its state and forwards the clicks; names there
+//     come from the game, never from the network;
 //   - the page is not trusted either. OpenFront's pages carry third-party ad
 //     scripts, which share the DOM with a content script's UI. So the panel lives
 //     in a CLOSED shadow root (page scripts cannot read the messages or the input)
@@ -22,7 +28,7 @@
 
   const MAX_TEXT = 280;
   const LOG_LIMIT = 200;
-  const PRESENCE_TTL = 100000; // a "here" beat arrives every ~45 s
+  const PRESENCE_TTL = 100000; // a "here" beat arrives every 45-60 s
   const FLOOD_WINDOW = 10000;
   const FLOOD_MAX = 6; // messages per sender per window before an automatic mute
   const FLOOD_MUTE = 60000;
@@ -87,7 +93,7 @@
   };
 
   // ---- state -------------------------------------------------------------------------
-  let want = { enabled: false, gameId: null, name: "", mode: "open", filter: true, phase: "lobby" };
+  let want = { enabled: false, gameId: null, name: "", mode: "open", filter: true, phase: "lobby", team: false, teamGame: false };
   let port = null;
   let joined = null; // game id the worker was told to join
   let pingTimer = null;
@@ -102,6 +108,17 @@
   let unread = 0;
   let noteSeen = true;
   let ui = null;
+  // team channel (team games only)
+  let view = "all"; // which tab is showing: "all" | "team"
+  const drafts = { all: "", team: "" }; // what was typed in each tab: text meant for the team never lands in the public box
+  let lastGame = null; // the game the panel is about; unlike `joined`, a worker restart does not clear it
+  let teamSent = null; // what the worker was last told about the team channel (on/off)
+  let lastTeamKey = null;
+  const teamRefs = { cancel: null, status: null };
+  let teamState = null; // the worker's snapshot (team.js snapshot())
+  let teamLog = []; // { kind, name, text, at, mine }
+  let teamUnread = 0;
+  let teamFeeding = false;
 
   // ---- worker link ---------------------------------------------------------------------
   function connect() {
@@ -112,6 +129,7 @@
       port = null; // extension reloaded; the fresh copy of this script takes over
       return;
     }
+    teamSent = null;
     port.onMessage.addListener(onWorker);
     port.onDisconnect.addListener(() => {
       port = null;
@@ -178,6 +196,22 @@
       present.set(msg.pubkey, { name: clean(msg.name, 32), at: now });
       push({ kind: "msg", id: msg.id, pubkey: msg.pubkey, name: clean(msg.name, 32) || "anonymous", text, at: msg.at });
       if (!open || want.mode === "paused") unread++;
+    } else if (msg?.t === "team") {
+      if (!want.team) return;
+      const was = teamState;
+      teamState = msg.state && typeof msg.state === "object" ? msg.state : null;
+      // something needs the user: a teammate asked, or emojis are waiting to be sent
+      const asks = (st) => (st?.mates ?? []).some((m) => (m.keys ?? []).some((k) => k.asks));
+      if (view !== "team" || !open) if ((asks(teamState) && !asks(was)) || (teamState?.pairing?.emojis && !was?.pairing?.emojis)) teamUnread++;
+    } else if (msg?.t === "team-msg") {
+      if (!want.team) return;
+      const text = clean(msg.text, MAX_TEXT);
+      if (!text) return;
+      pushTeam({ kind: "msg", name: clean(msg.name, 40) || "teammate", text, at: msg.at });
+      if (!open || view !== "team") teamUnread++;
+    } else if (msg?.t === "team-sent") {
+      if (msg.ok) pushTeam({ kind: "msg", name: "you", text: clean(msg.text, MAX_TEXT), at: msg.at, mine: true, to: msg.to, skipped: msg.skipped });
+      else pushTeam({ kind: "sys", text: msg.why === "slow down" ? "Slow down a little." : `Not sent: ${msg.why ?? "unknown"}.`, at: Date.now() });
     } else if (msg?.t === "sent") {
       if (msg.ok) push({ kind: "msg", id: msg.id, pubkey: me, name: want.name, text: clean(msg.text, MAX_TEXT), at: msg.at, mine: true });
       else push({ kind: "sys", text: msg.why === "slow down" ? "Slow down a little." : `Not sent: ${msg.why ?? "unknown"}.`, at: Date.now() });
@@ -189,10 +223,53 @@
     log.push(entry);
     if (log.length > LOG_LIMIT) log = log.slice(-LOG_LIMIT);
   }
+  function pushTeam(entry) {
+    teamLog.push(entry);
+    if (teamLog.length > LOG_LIMIT) teamLog = teamLog.slice(-LOG_LIMIT);
+  }
+
+  // The page-world probe reports my team's roster and the emojis teammates send each
+  // other (page-probe.js) while data-ofr-team is "on"; the worker decides what they
+  // prove. Any script in the top page (OpenFront's own code, or the third-party ad
+  // scripts it loads) can post these messages too: a forged roster or emoji run
+  // makes a key of its choosing look verified once the user presses Verify on it,
+  // and that key then receives team messages. Nothing here can tell a fake apart;
+  // docs/TEAM-CHAT.md lists it as out of scope. Shapes are checked in team.js.
+  // The attribute carries a time and is refreshed while the channel is on: a copy of
+  // this script orphaned by an extension reload cannot switch it off, so the probe
+  // stops by itself once it is stale.
+  function feedTeam(on) {
+    if (on) document.documentElement.dataset.ofrTeam = `on:${Date.now()}`;
+    else delete document.documentElement.dataset.ofrTeam;
+    if (on === teamFeeding) return;
+    teamFeeding = on;
+    if (!on) {
+      teamState = null;
+      teamLog = [];
+      teamUnread = 0;
+      showView("all");
+      drafts.team = "";
+    }
+  }
+  function showView(next) {
+    if (next === view) return;
+    if (ui) {
+      drafts[view] = ui.input.value;
+      ui.input.value = drafts[next] ?? "";
+    }
+    view = next;
+  }
+  globalThis.window?.addEventListener?.("message", (e) => {
+    if (e.source !== window || !teamFeeding || !port) return;
+    const m = e.data;
+    if (!m || m.__ofr !== "team-state" || m.gameId !== joined || typeof m.gameId !== "string") return;
+    send({ t: "team-feed", data: { gameId: m.gameId, tick: m.tick, spawn: m.spawn === true, catchingUp: m.catchingUp === true, roster: Array.isArray(m.roster) ? m.roster.slice(0, 128) : null, emojis: Array.isArray(m.emojis) ? m.emojis.slice(0, 32) : [] } });
+  });
 
   // ---- reconcile what we want with what is running ---------------------------------------
   function apply() {
     if (!want.enabled || !want.gameId) {
+      feedTeam(false);
       if (port) disconnect();
       if (ui) {
         ui.host.remove();
@@ -201,19 +278,42 @@
       log = [];
       present.clear();
       unread = 0;
+      lastGame = null;
+      drafts.all = drafts.team = "";
+      return;
+    }
+    if (lastGame !== want.gameId) {
+      // another game: another room, another team, another channel
+      feedTeam(false);
+      if (lastGame) {
+        log = [];
+        present.clear();
+        unread = 0;
+      }
+      lastGame = want.gameId;
+    }
+    if (want.mode === "paused") {
+      // Paused (alive in a free-for-all): out of the room altogether - no relay
+      // connection, nothing sent, nothing received. It rejoins when it opens again.
+      feedTeam(false);
+      if (port) disconnect();
+      relays = { open: 0, total: relays.total };
+      render();
       return;
     }
     connect();
     if (!port) return;
     if (joined !== want.gameId) {
-      if (joined) {
-        log = [];
-        present.clear();
-        unread = 0;
-      }
       joined = want.gameId;
+      teamSent = null;
       send({ t: "join", gameId: want.gameId, name: want.name });
     } else send({ t: "name", name: want.name });
+    const wantTeam = want.team === true;
+    feedTeam(wantTeam);
+    if (teamSent !== wantTeam) {
+      teamSent = wantTeam;
+      send({ t: "team", on: wantTeam });
+    }
     render();
   }
 
@@ -261,6 +361,12 @@
     fold.type = "button";
     fold.title = "Fold";
     head.append(title, status, mutes, reportLink, fold);
+    const tabs = el("div", "ofr-chat-tabs");
+    const tabAll = el("button", "ofr-chat-view", "Everyone");
+    const tabTeam = el("button", "ofr-chat-view", "Team");
+    tabAll.type = tabTeam.type = "button";
+    tabs.append(tabAll, tabTeam);
+    const teamBox = el("div", "ofr-team");
     const note = el("div", "ofr-chat-note");
     const list = el("div", "ofr-chat-log");
     list.setAttribute("role", "log");
@@ -274,13 +380,31 @@
     const go = el("button", "ofr-chat-send", "Send");
     go.type = "submit";
     form.append(input, go);
-    panel.append(head, note, list, form);
+    panel.append(head, tabs, note, teamBox, list, form);
     root.append(tab, panel);
+
+    const setView = (next) => {
+      showView(next);
+      if (view === "team") teamUnread = 0;
+      else unread = 0;
+      render();
+    };
+    tabAll.addEventListener("click", () => setView("all"));
+    tabTeam.addEventListener("click", () => setView("team"));
+    // Verify / Cancel: real clicks only. A pairing makes the user act in the game,
+    // so a script on the page must not be able to start one.
+    teamBox.addEventListener("click", (e) => {
+      const button = e.target?.closest?.("button[data-act]");
+      if (!button || !e.isTrusted) return;
+      if (button.dataset.act === "verify" && /^[0-9a-f]{64}$/.test(button.dataset.key ?? "")) send({ t: "team-verify", key: button.dataset.key });
+      else if (button.dataset.act === "cancel") send({ t: "team-cancel" });
+    });
 
     const setOpen = (next) => {
       open = next;
       store.set(OPEN_KEY, open);
-      if (open) unread = 0;
+      if (open && view === "team") teamUnread = 0;
+      else if (open) unread = 0;
       render();
       if (open && want.mode === "open") input.focus({ preventScroll: true });
     };
@@ -298,7 +422,10 @@
       if (!e.isTrusted) return; // a person pressed Enter or clicked Send, or nothing happens
       const text = clean(input.value, MAX_TEXT);
       if (!text || want.mode !== "open") return;
-      send({ t: "say", text });
+      if (view === "team") {
+        if (!want.team) return; // never let team text go out in the public room
+        send({ t: "team-say", text });
+      } else send({ t: "say", text });
       input.value = "";
     });
     // The game binds hotkeys on the document; typing here must not fire them.
@@ -324,7 +451,93 @@
       store.set(SEEN_NOTE_KEY, true);
       render();
     });
-    return { host, root, tab, panel, title, status, mutes, note, list, form, input, go, setOpen };
+    lastTeamKey = null;
+    return { host, root, tab, panel, title, status, mutes, note, list, form, input, go, setOpen, tabs, tabAll, tabTeam, teamBox };
+  }
+
+  // In a team game, emojis in the PUBLIC tab could be someone talking a player into
+  // "just send these three" (that is how a stranger would get a key verified as your
+  // teammate) - in one line, spread over several, or inside a name. So in a team
+  // game (your own team channel on or not) the public tab shows no emoji from
+  // anyone else at all.
+  const PICTO = /\p{Extended_Pictographic}/gu;
+  const noEmoji = (text) => String(text).replace(PICTO, "▫");
+
+  function pairLine(p) {
+    const peer = p.peerName || "your teammate";
+    const mine = p.mine >= 3 ? "you: sent ✓" : p.wait > 0 && p.mine > 0 ? `you: ${p.mine}/3 · the game allows the next one to them in ${p.wait} s` : `you: ${p.mine}/3`;
+    return `${mine} · ${p.theirs ? `${peer}: seen ✓` : `${peer}: waiting for theirs`}`;
+  }
+  function cancelText(p) {
+    const left = Math.max(0, Math.round((p.endsAt - Date.now()) / 1000));
+    return `Cancel (${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")})`;
+  }
+  function teamClock() {
+    const p = teamState?.pairing;
+    if (!p) return;
+    if (teamRefs.cancel?.isConnected) teamRefs.cancel.textContent = cancelText(p);
+    if (teamRefs.status?.isConnected && p.stage === "emojis") teamRefs.status.textContent = pairLine(p);
+  }
+
+  function teamRows(st) {
+    teamRefs.cancel = teamRefs.status = null;
+    const rows = [];
+    const p = st.pairing;
+    if (st.impersonated) rows.push(el("div", "ofr-team-alarm", "Someone is claiming to be you in this game. Only send emojis that this box asks for, after you pressed Verify yourself."));
+    if (p) {
+      const box = el("div", "ofr-team-pair");
+      const peer = p.peerName || "your teammate";
+      if (p.stage !== "emojis") {
+        box.append(el("div", "ofr-team-line", p.stage === "asking" ? `Asked ${peer} to verify. Waiting for them to press Verify too…` : "Agreeing on the emojis…"));
+      } else {
+        box.append(el("div", "ofr-team-line", `Send these three to ${peer}, in this order, with the game's emoji menu (hold Alt and click THEIR territory):`));
+        const seq = el("div", "ofr-team-sas");
+        p.emojis.forEach((emoji, i) => {
+          const cell = el("span", "ofr-team-emoji", emoji);
+          cell.dataset.done = String(i < p.mine);
+          seq.append(cell);
+        });
+        box.append(seq);
+        teamRefs.status = el("div", "ofr-team-line dim", pairLine(p));
+        box.append(teamRefs.status);
+        if (p.unseen) box.append(el("div", "ofr-team-line warn", `${peer}'s extension has not confirmed yours. If they say they saw nothing, send the three again.`));
+        box.append(el("div", "ofr-team-line dim", "A wrong emoji in between? Just send all three again. Only ever send emojis shown HERE: nobody in a chat needs you to send emojis."));
+      }
+      const cancel = el("button", "ofr-team-btn", cancelText(p));
+      cancel.type = "button";
+      cancel.dataset.act = "cancel";
+      teamRefs.cancel = cancel;
+      box.append(cancel);
+      rows.push(box);
+    }
+    const withExt = st.mates.filter((m) => m.keys.length);
+    for (const m of withExt) {
+      for (const k of m.keys) {
+        const row = el("div", "ofr-team-mate");
+        const label = k.status === "direct" ? "verified" : k.status === "vouched" ? "verified through a teammate" : k.asks ? "asks to verify" : "not verified";
+        const who = el("span", "ofr-team-name", m.name || `player ${m.sid}`);
+        if (m.keys.length > 1) who.append(el("span", "ofr-chat-key", ` ${k.key.slice(0, 4)}`));
+        const tag = el("span", "ofr-team-tag", `${label}${k.status !== "claimed" && !k.mutual ? " · has not verified you" : ""}${k.live ? "" : " · offline"}`);
+        tag.dataset.status = k.status;
+        row.append(who, tag);
+        if ((k.status === "claimed" || !k.mutual) && k.live && !(p && p.stage === "emojis")) {
+          const b = el("button", "ofr-team-btn", "Verify");
+          b.type = "button";
+          b.dataset.act = "verify";
+          b.dataset.key = k.key;
+          if (k.asks) b.dataset.hot = "true";
+          row.append(b);
+        }
+        rows.push(row);
+      }
+      if (m.keys.length > 1) rows.push(el("div", "ofr-team-line warn", `${m.keys.length} different senders say they are ${m.name}. At most one is: verifying shows which.`));
+    }
+    const without = st.mates.length - withExt.length;
+    if (!withExt.length) rows.push(el("div", "ofr-team-line dim", st.mates.length ? "None of your teammates has OpenFront Pro with team chat on (yet)." : "No human teammates in this game."));
+    else if (without > 0) rows.push(el("div", "ofr-team-line dim", `${without} more teammate${without === 1 ? "" : "s"} without the extension.`));
+    if (st.spawn) rows.push(el("div", "ofr-team-line dim", "Verifying starts after the spawn phase (the game sends no emojis before)."));
+    if (st.note) rows.push(el("div", "ofr-team-line warn", st.note));
+    return rows;
   }
 
   function render() {
@@ -338,21 +551,35 @@
     for (const [key, p] of present) if (now - p.at > PRESENCE_TTL || isMuted(key)) present.delete(key);
     const here = present.size + 1;
     const paused = want.mode === "paused";
+    const teamOn = want.team === true && !paused;
+    if (!teamOn && view === "team") showView("all");
+    const inTeam = view === "team";
+    const news = unread + teamUnread;
 
     ui.root.dataset.open = String(open);
     ui.root.dataset.mode = want.mode;
-    ui.tab.textContent = paused ? "Chat ⏸" : unread > 0 ? `Chat · ${unread} new` : here > 1 ? `Chat · ${here}` : "Chat";
-    ui.tab.dataset.unread = String(unread > 0 && !paused);
+    ui.root.dataset.view = view;
+    ui.tab.textContent = paused ? "Chat ⏸" : news > 0 ? `Chat · ${news} new` : here > 1 ? `Chat · ${here}` : "Chat";
+    ui.tab.dataset.unread = String(news > 0 && !paused);
     ui.tab.title = paused ? "Chat is paused while you are playing" : `${here} with OpenFront Pro in this ${want.phase === "lobby" ? "lobby" : "game"}`;
     ui.title.textContent = want.phase === "lobby" ? "Lobby chat" : want.phase === "after" ? "Post-game chat" : "Game chat";
     ui.status.textContent = relays.open ? `${here} here · ${relays.open}/${relays.total} relays` : "connecting…";
     ui.status.dataset.ok = String(relays.open > 0);
     ui.mutes.textContent = muted.size + tempMuted.size ? `${muted.size + tempMuted.size} muted · clear` : "";
-    ui.mutes.hidden = muted.size + tempMuted.size === 0;
+    ui.mutes.hidden = muted.size + tempMuted.size === 0 || inTeam;
+
+    ui.tabs.hidden = !teamOn;
+    ui.tabAll.dataset.on = String(!inTeam);
+    ui.tabTeam.dataset.on = String(inTeam);
+    ui.tabAll.textContent = unread > 0 && inTeam ? `Everyone · ${unread}` : "Everyone";
+    const reach = teamState?.reachable ?? 0;
+    ui.tabTeam.textContent = `Team${reach > 0 ? " (encrypted)" : ""}${teamUnread > 0 && !inTeam ? ` · ${teamUnread} new` : reach > 0 ? ` · ${reach}` : ""}`;
+    ui.tabTeam.dataset.unread = String(teamUnread > 0 && !inTeam);
 
     if (paused) {
       ui.note.hidden = false;
       ui.note.textContent = "Paused while you are alive in a free-for-all: OpenFront's terms do not allow outside channels for coordinating there. It opens again when you are out or the game ends. (Team games keep it open.)";
+      ui.teamBox.hidden = true;
       ui.list.replaceChildren();
       ui.list.hidden = true;
       ui.form.hidden = true;
@@ -360,28 +587,54 @@
     }
     ui.list.hidden = false;
     ui.form.hidden = false;
-    ui.note.hidden = noteSeen;
-    if (!noteSeen) {
-      ui.note.textContent =
-        "This chat is PUBLIC. Messages travel through public Nostr relays: anyone connected to them can read this room, the relays see your IP address, and nobody can promise they keep nothing. While chat is on, your OpenFront name and clan tag are announced to the room even if you do not type. Names are NOT verified; the letters after a name identify the sender's key for this game. x mutes a sender, Report opens the project's issue page. Click to dismiss.";
+    ui.teamBox.hidden = !inTeam;
+    if (inTeam) {
+      ui.note.hidden = true;
+      const st = teamState;
+      // Rebuilt only when something in it changes (a click that lands while the
+      // buttons are replaced is lost); the countdown and the cooldown tick in place.
+      const key = JSON.stringify(st ? { ...st, pairing: st.pairing ? { ...st.pairing, wait: 0 } : null } : null);
+      if (key !== lastTeamKey) {
+        lastTeamKey = key;
+        ui.teamBox.replaceChildren(...(st?.ready ? teamRows(st) : [el("div", "ofr-team-line dim", "Waiting for the game… The team channel opens once you are in a running team game.")]));
+      }
+      teamClock();
+      const can = relays.open > 0 && (st?.trusted ?? 0) > 0;
+      ui.input.placeholder = can ? "Message verified teammates…" : "Verify a teammate to write here";
+      ui.input.disabled = !can;
+      ui.go.disabled = !can;
+    } else {
+      ui.note.hidden = noteSeen;
+      if (!noteSeen) {
+        ui.note.textContent =
+          "This chat is PUBLIC. Messages travel through public Nostr relays: anyone connected to them can read this room, the relays see your IP address, and nobody can promise they keep nothing. While chat is on, your OpenFront name and clan tag are announced to the room even if you do not type. Names are NOT verified; the letters after a name identify the sender's key for this game. x mutes a sender, Report opens the project's issue page. Click to dismiss.";
+      }
+      ui.input.placeholder = want.phase === "lobby" ? "Message the lobby…" : "Message the game…";
+      ui.input.disabled = relays.open === 0;
+      ui.go.disabled = relays.open === 0;
     }
-    ui.input.placeholder = want.phase === "lobby" ? "Message the lobby…" : "Message the game…";
-    ui.input.disabled = relays.open === 0;
-    ui.go.disabled = relays.open === 0;
 
+    const shown = inTeam ? teamLog : log;
     const stick = ui.list.scrollTop + ui.list.clientHeight >= ui.list.scrollHeight - 24;
     ui.list.replaceChildren(
-      ...(log.length
-        ? log.map((m) => {
+      ...(shown.length
+        ? shown.map((m) => {
             const row = el("div", `ofr-chat-row ${m.kind === "sys" ? "sys" : m.mine ? "mine" : ""}`);
+            const hide = !inTeam && want.teamGame === true && !m.mine; // see noEmoji
             if (m.kind === "sys") {
-              row.textContent = m.text;
+              row.textContent = hide ? noEmoji(m.text) : m.text;
               return row;
             }
-            const who = el("span", "ofr-chat-who", m.mine ? "you" : m.name);
+            const who = el("span", "ofr-chat-who", m.mine ? "you" : hide ? noEmoji(m.name) : m.name);
+            if (inTeam) {
+              row.title = `${clock(m.at)}${m.mine ? ` · encrypted to ${m.to} verified teammate${m.to === 1 ? "" : "s"}${m.skipped ? ` (${m.skipped} more not reached)` : ""}` : " · verified teammate (name from the game)"}`;
+              row.append(who, el("span", "ofr-chat-text", want.filter ? mask(m.text) : m.text));
+              return row;
+            }
             if (!m.mine) who.append(el("span", "ofr-chat-key", ` ${m.pubkey.slice(0, 4)}`));
             row.title = `${clock(m.at)}${m.mine ? "" : " · unverified name"}`;
-            row.append(who, el("span", "ofr-chat-text", want.filter ? mask(m.text) : m.text));
+            const text = want.filter ? mask(m.text) : m.text;
+            row.append(who, el("span", "ofr-chat-text", hide ? noEmoji(text) : text));
             if (!m.mine) {
               const x = el("button", "ofr-chat-mute", "×");
               x.type = "button";
@@ -391,14 +644,16 @@
             }
             return row;
           })
-        : [el("div", "ofr-chat-row sys", here > 1 ? "Say hi." : "Nobody else with OpenFront Pro is here yet.")]),
+        : [el("div", "ofr-chat-row sys", inTeam ? ((teamState?.trusted ?? 0) > 0 ? "Encrypted to your verified teammates. Say hi." : "Messages here are encrypted to teammates verified through the game: by you, or through a chain of teammates who verified each other.") : here > 1 ? "Say hi." : "Nobody else with OpenFront Pro is here yet.")]),
     );
     if (stick) ui.list.scrollTop = ui.list.scrollHeight;
   }
 
   // ---- public ------------------------------------------------------------------------------------
   let loaded = false;
+  let demo = false; // tools/cdp-teamui.mjs froze the panel on a made-up state
   async function sync(next) {
+    if (demo) return;
     want = { ...want, ...next, name: clean(next.name ?? want.name, 32) || "anonymous" };
     if (!loaded) {
       loaded = true;
@@ -425,6 +680,19 @@
   setInterval(() => {
     if (ui && want.enabled && want.gameId) render();
   }, 15000);
+  // ...a running verification shows a countdown, and the probe's switch is kept fresh
+  setInterval(() => {
+    if (ui && open && view === "team") teamClock();
+  }, 1000);
+  setInterval(() => {
+    let live = false;
+    try {
+      live = !!chrome.runtime?.id;
+    } catch {
+      // orphaned by an extension reload
+    }
+    if (teamFeeding && live) document.documentElement.dataset.ofrTeam = `on:${Date.now()}`;
+  }, 10000);
 
   // For the dev tools (tools/cdp-chat.mjs), which drive this from the extension's
   // isolated world. The page cannot reach it: globals here are not the page's.
@@ -442,9 +710,24 @@
       rows: ui ? [...ui.list.children].map((r) => r.textContent) : [],
       markup: ui ? ui.list.querySelectorAll("img, b, a, script, iframe").length : 0,
       inputHidden: ui ? ui.form.hidden : null,
+      view,
+      team: teamState,
+      teamRows: ui ? [...ui.teamBox.children].map((r) => r.textContent) : [],
+      teamLog: teamLog.map((m) => ({ kind: m.kind, name: m.name, text: m.text, mine: !!m.mine })),
       log: log.map((m) => ({ kind: m.kind, name: m.name, text: m.text, mine: !!m.mine, pubkey: m.pubkey?.slice(0, 8) })),
     }),
     say: (text) => send({ t: "say", text: clean(text, MAX_TEXT) }),
+    // Shows the Team tab on a made-up state, without a game or a relay (screenshots).
+    demoTeam: (state, messages = []) => {
+      demo = true;
+      want = { ...want, enabled: true, gameId: "DEMO", team: true, mode: "open", phase: "game", name: "you" };
+      relays = { open: 3, total: 4 };
+      teamState = state;
+      teamLog = messages;
+      view = "team";
+      open = true;
+      render();
+    },
     open: () => ui?.setOpen(true),
     mute: (prefix) => {
       const hit = log.find((m) => m.pubkey?.startsWith(prefix));
