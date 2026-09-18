@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+"use strict";
 // OpenFront Pro companion launcher for the Steam (Electron) build of OpenFront.
 //
 // The Steam build cannot load browser extensions. This program runs the SAME
@@ -19,30 +20,51 @@
 // Read-only, like the extension: it reads the game's pages and draws panels; it
 // never sends a game action. Requires Node 22+ (global fetch and WebSocket).
 //
-//   node launcher/openfront-pro-launcher.mjs            start the game and attach
-//   node launcher/openfront-pro-launcher.mjs --attach   attach only (game already
+//   node launcher/openfront-pro-launcher.cjs            start the game and attach
+//   node launcher/openfront-pro-launcher.cjs --attach   attach only (game already
 //                                                       running with the flag)
 //   --port=9322    debugging port (loopback only)
 //
 // KNOW THE RISKS (see launcher/README.md): a debugging port lets any program on
 // this computer drive the game window while it is open, and OpenFront's terms
 // restrict third-party software - using this on your Steam account is your call.
-import { spawn, execFileSync } from "node:child_process";
-import crypto from "node:crypto";
-import fs from "node:fs";
-import http from "node:http";
-import os from "node:os";
-import path from "node:path";
-import vm from "node:vm";
-import { fileURLToPath } from "node:url";
+const { spawn, execFileSync } = require("node:child_process");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const http = require("node:http");
+const os = require("node:os");
+const path = require("node:path");
+const vm = require("node:vm");
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SRC = path.join(ROOT, "src");
+// Two ways to run: from the repository (files read from disk), or as the single
+// executable built by tools/build-launcher.mjs, where the extension's files are
+// embedded as assets (node:sea). Everything below reads through asset().
+let sea = null;
+try {
+  const s = require("node:sea");
+  if (s.isSea()) sea = s;
+} catch {
+  // not a single-executable build
+}
+const ROOT = sea ? null : path.resolve(__dirname, "..");
+const SEA_KEYS = sea ? new Set(JSON.parse(Buffer.from(sea.getAsset("__index.json")).toString("utf8"))) : null;
+function hasAsset(rel) {
+  if (sea) return SEA_KEYS.has(rel);
+  const file = path.join(ROOT, rel);
+  return file.startsWith(ROOT) && fs.existsSync(file) && fs.statSync(file).isFile();
+}
+function asset(rel) {
+  return sea ? Buffer.from(sea.getAsset(rel)) : fs.readFileSync(path.join(ROOT, rel));
+}
+const text = (rel) => asset(rel).toString("utf8");
 const APP_ID = "3560670";
+// Where the game lives. Overridable ONLY for tools/test-launcher-bridge.mjs, which
+// points the launcher at a stand-in page in a headless Chrome.
+const GAME_PREFIX = process.env.OFR_LAUNCHER_TEST_ORIGIN || "app://openfront";
 const WORLD = "OpenFront Pro";
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, "").split("=")).map(([k, v]) => [k, v ?? true]));
 const CDP_PORT = Number(args.port ?? 9322);
-const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8").replace(/^﻿/, ""));
+const manifest = JSON.parse(text("manifest.json").replace(new RegExp("^" + String.fromCharCode(0xfeff)), ""));
 const log = (...a) => console.log(`[${new Date().toLocaleTimeString()}]`, ...a);
 
 if (typeof WebSocket !== "function" || typeof fetch !== "function") {
@@ -50,23 +72,85 @@ if (typeof WebSocket !== "function" || typeof fetch !== "function") {
   process.exit(1);
 }
 
+process.on("uncaughtException", (err) => console.error("[launcher] unexpected error (continuing):", err?.stack ?? err));
+process.on("unhandledRejection", (err) => console.error("[launcher] unhandled rejection (continuing):", err?.stack ?? err));
+
+async function main() {
 // ---- storage: chrome.storage.* in a JSON file ---------------------------------------------
 const DATA_DIR = path.join(process.env.APPDATA ?? path.join(os.homedir(), ".config"), "openfront-pro-launcher");
 const STORE_FILE = path.join(DATA_DIR, "storage.json");
 fs.mkdirSync(DATA_DIR, { recursive: true });
-let store = { sync: {}, local: {} };
-try {
-  store = { sync: {}, local: {}, ...JSON.parse(fs.readFileSync(STORE_FILE, "utf8")) };
-} catch {
-  // first run
+// Null-prototype areas and own-key checks: a key called "__proto__" or
+// "constructor" is just a key, never the object's machinery.
+const bare = (o) => Object.assign(Object.create(null), o && typeof o === "object" ? o : {});
+let store = { sync: bare(), local: bare() };
+if (fs.existsSync(STORE_FILE)) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(STORE_FILE, "utf8"));
+    store = { sync: bare(saved.sync), local: bare(saved.local) };
+  } catch (err) {
+    // Damaged (a crash mid-write, a disk problem). Keep it for the user instead of
+    // silently overwriting their settings and consent with a fresh file.
+    const kept = `${STORE_FILE}.corrupt-${Date.now()}`;
+    try {
+      fs.renameSync(STORE_FILE, kept);
+    } catch {
+      // cannot even rename it; carry on with defaults
+    }
+    log(`settings file was unreadable (${err.message}); kept as ${kept}, starting with defaults`);
+  }
 }
-store.session = {}; // memory only, like chrome.storage.session
+
+// One launcher at a time: two would both attach to the game window and handle
+// every message (and every chat line) twice.
+const LOCK_FILE = path.join(DATA_DIR, "launcher.lock");
+try {
+  const pid = Number(fs.readFileSync(LOCK_FILE, "utf8"));
+  if (pid && pid !== process.pid) {
+    process.kill(pid, 0); // throws if that process is gone
+    console.error(`OpenFront Pro launcher is already running (process ${pid}). Close it first.`);
+    process.exit(1);
+  }
+} catch (err) {
+  if (err?.code === "EPERM") {
+    console.error("OpenFront Pro launcher is already running. Close it first.");
+    process.exit(1);
+  }
+  // no lock, or a stale one
+}
+fs.writeFileSync(LOCK_FILE, String(process.pid));
+store.session = bare(); // memory only, like chrome.storage.session
 let saveTimer = null;
+// The rank cache ("ofs<N>:" keys, ~16 KB per player, minutes of life) stays in
+// memory: persisting it made the file grow by a megabyte per lobby.
+const persisted = () => JSON.stringify({ sync: store.sync, local: Object.fromEntries(Object.entries(store.local).filter(([k]) => !/^ofs\d+:/.test(k))) });
+const writeNow = () => {
+  const tmp = `${STORE_FILE}.tmp`;
+  fs.writeFileSync(tmp, persisted());
+  fs.renameSync(tmp, STORE_FILE);
+};
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of Object.entries(store.local)) if (/^ofs\d+:/.test(k) && v && typeof v.expiresAt === "number" && v.expiresAt < now) delete store.local[k];
+}, 60000).unref();
+const shutdown = (code) => {
+  try {
+    if (saveTimer) writeNow();
+    fs.rmSync(LOCK_FILE, { force: true });
+  } catch {
+    // best effort
+  }
+  if (code !== undefined) process.exit(code);
+};
+process.on("exit", () => shutdown());
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));
 const save = () => {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    saveTimer = null;
     try {
-      fs.writeFileSync(STORE_FILE, JSON.stringify({ sync: store.sync, local: store.local }));
+      writeNow(); // write-then-rename: a crash mid-write must not eat settings and consent
     } catch (err) {
       log("could not save settings:", err.message);
     }
@@ -76,11 +160,13 @@ const storageListeners = new Set(); // (changes, area) => void
 const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
 function storageGet(area, keys) {
-  const data = store[area] ?? {};
-  if (keys === null || keys === undefined) return clone(data);
-  if (typeof keys === "string") return keys in data ? { [keys]: clone(data[keys]) } : {};
-  if (Array.isArray(keys)) return Object.fromEntries(keys.filter((k) => k in data).map((k) => [k, clone(data[k])]));
-  return Object.fromEntries(Object.entries(keys).map(([k, dflt]) => [k, k in data ? clone(data[k]) : dflt]));
+  const data = store[area] ?? bare();
+  const has = (k) => Object.hasOwn(data, k);
+  if (keys === null || keys === undefined) return clone({ ...data });
+  if (typeof keys === "string") return has(keys) ? { [keys]: clone(data[keys]) } : {};
+  if (Array.isArray(keys)) return Object.fromEntries(keys.filter((k) => typeof k === "string" && has(k)).map((k) => [k, clone(data[k])]));
+  if (typeof keys !== "object") return {};
+  return Object.fromEntries(Object.entries(keys).map(([k, dflt]) => [k, has(k) ? clone(data[k]) : dflt]));
 }
 function emitChange(area, changes) {
   if (!Object.keys(changes).length) return;
@@ -94,7 +180,9 @@ function emitChange(area, changes) {
 }
 function storageSet(area, items) {
   const changes = {};
-  for (const [k, v] of Object.entries(items ?? {})) {
+  if (!items || typeof items !== "object") return;
+  for (const [k, v] of Object.entries(items)) {
+    if (k === "__proto__") continue;
     const oldValue = store[area][k];
     if (JSON.stringify(oldValue) === JSON.stringify(v)) continue;
     store[area][k] = clone(v);
@@ -106,7 +194,7 @@ function storageSet(area, items) {
 function storageRemove(area, keys) {
   const changes = {};
   for (const k of [].concat(keys ?? [])) {
-    if (!(k in store[area])) continue;
+    if (typeof k !== "string" || !Object.hasOwn(store[area], k)) continue;
     changes[k] = { oldValue: store[area][k] };
     delete store[area][k];
   }
@@ -125,11 +213,31 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; ch
 let httpBase = "";
 const sseClients = new Set();
 
-function openExternal(url) {
-  // Only our own pages and https links, never a command.
-  if (!/^https:\/\//.test(url) && !url.startsWith(httpBase)) return;
-  if (process.platform === "win32") spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
-  else spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+let lastOpened = 0;
+function openExternal(raw) {
+  // https links and our own pages only. The URL goes through the URL parser and
+  // is handed to the OS as ONE argument, never through a shell: with "cmd /c
+  // start", an & or | inside a URL would have run as a command. At most one every
+  // two seconds - this can be triggered from inside the game page.
+  let u;
+  try {
+    u = new URL(String(raw));
+  } catch {
+    return;
+  }
+  if (u.protocol !== "https:" && u.origin !== new URL(httpBase).origin) return;
+  const now = Date.now();
+  if (now - lastOpened < 2000) return;
+  lastOpened = now;
+  const [cmd, cmdArgs] =
+    process.platform === "win32" ? ["rundll32.exe", ["url.dll,FileProtocolHandler", u.href]] : process.platform === "darwin" ? ["open", [u.href]] : ["xdg-open", [u.href]];
+  try {
+    const child = spawn(cmd, cmdArgs, { detached: true, stdio: "ignore", windowsHide: true });
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    // nothing to open it with; the address is in the log
+  }
 }
 
 // The stand-in for chrome.* inside the popup / welcome pages (a normal browser tab).
@@ -161,25 +269,38 @@ const PAGE_SHIM = `(() => {
   document.documentElement.classList.add("ofr-launcher");
 })();`;
 
+// Sent with everything: no Referer towards sites linked from the settings page
+// (it would give away the port), no sniffing, and for pages the same script
+// policy an extension page has.
+const SECURITY = { "x-frame-options": "DENY", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "cross-origin-resource-policy": "same-origin" };
+const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.ofstats.io; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+const MAX_BODY = 1_000_000;
+
 function serve(req, res) {
   const deny = (code, text) => {
-    res.writeHead(code, { "content-type": "text/plain" });
+    res.writeHead(code, { "content-type": "text/plain", ...SECURITY });
     res.end(text);
   };
   // Loopback only, and only for someone who knows the token: another website must
   // not be able to read or change settings through the user's browser.
   if (req.headers.host !== `127.0.0.1:${server.address().port}`) return deny(403, "bad host");
-  const url = new URL(req.url, httpBase);
+  let url;
+  try {
+    url = new URL(req.url, httpBase);
+  } catch {
+    return deny(400, "bad request"); // e.g. "//": new URL() throws on it
+  }
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.shift() !== TOKEN) return deny(404, "not found");
   const rest = parts.join("/");
 
   if (rest === "__shim.js") {
-    res.writeHead(200, { "content-type": TYPES[".js"], "cache-control": "no-store" });
+    res.writeHead(200, { "content-type": TYPES[".js"], "cache-control": "no-store", ...SECURITY });
     return res.end(PAGE_SHIM);
   }
   if (rest === "__events") {
-    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+    if (sseClients.size >= 8) return deny(429, "too many listeners");
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", ...SECURITY });
     res.write(": hello\n\n");
     sseClients.add(res);
     req.on("close", () => sseClients.delete(res));
@@ -189,8 +310,19 @@ function serve(req, res) {
     if (req.method !== "POST") return deny(405, "POST only");
     if (req.headers.origin && req.headers.origin !== `http://127.0.0.1:${server.address().port}`) return deny(403, "bad origin");
     let body = "";
-    req.on("data", (c) => (body += c));
+    let tooBig = false;
+    req.on("data", (c) => {
+      if (tooBig) return;
+      body += c;
+      if (body.length > MAX_BODY) {
+        tooBig = true;
+        res.writeHead(413, { connection: "close", ...SECURITY });
+        res.end();
+        req.destroy();
+      }
+    });
     req.on("end", async () => {
+      if (tooBig) return;
       let value = null;
       try {
         const m = JSON.parse(body || "{}");
@@ -202,7 +334,7 @@ function serve(req, res) {
       } catch (err) {
         log("api error:", err.message);
       }
-      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", ...SECURITY });
       res.end(JSON.stringify({ value }));
     });
     return;
@@ -210,17 +342,27 @@ function serve(req, res) {
 
   // static files of the extension, nothing else
   if (!/^(src|icons|sounds)\/[\w./-]+$/.test(rest) || rest.includes("..")) return deny(404, "not found");
-  const file = path.join(ROOT, rest);
-  if (!file.startsWith(ROOT) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return deny(404, "not found");
-  const ext = path.extname(file);
-  let data = fs.readFileSync(file);
+  if (!hasAsset(rest)) return deny(404, "not found");
+  const ext = path.extname(rest);
+  let data = asset(rest);
   if (ext === ".html") {
     data = Buffer.from(data.toString("utf8").replace(/<head>/i, `<head><script src="/${TOKEN}/__shim.js"></script>`));
   }
-  res.writeHead(200, { "content-type": TYPES[ext] ?? "application/octet-stream", "cache-control": "no-store" });
+  res.writeHead(200, { "content-type": TYPES[ext] ?? "application/octet-stream", "cache-control": "no-store", ...SECURITY, ...(ext === ".html" ? { "content-security-policy": PAGE_CSP } : {}) });
   res.end(data);
 }
-const server = http.createServer(serve);
+const server = http.createServer((req, res) => {
+  try {
+    serve(req, res);
+  } catch (err) {
+    log("http:", err.message);
+    if (!res.headersSent) res.writeHead(500, SECURITY);
+    res.end();
+  }
+});
+server.headersTimeout = 10000;
+server.requestTimeout = 20000;
+server.on("clientError", (_err, socket) => socket.destroy());
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 httpBase = `http://127.0.0.1:${server.address().port}/${TOKEN}`;
 storageListeners.add((changes, area) => {
@@ -277,16 +419,18 @@ const sandbox = vm.createContext({
 sandbox.self = sandbox;
 sandbox.globalThis = sandbox;
 sandbox.importScripts = (...files) => {
-  for (const f of files) vm.runInContext(fs.readFileSync(path.join(SRC, f), "utf8"), sandbox, { filename: f });
+  for (const f of files) vm.runInContext(text(`src/${f}`), sandbox, { filename: f });
 };
-vm.runInContext(fs.readFileSync(path.join(SRC, "background.js"), "utf8"), sandbox, { filename: "background.js" });
+vm.runInContext(text("src/background.js"), sandbox, { filename: "background.js" });
 
 function dispatchMessage(msg, sender) {
   return new Promise((resolve) => {
     let done = false;
+    let timer = null;
     const respond = (value) => {
       if (done) return;
       done = true;
+      clearTimeout(timer);
       resolve(clone(value));
     };
     let async = false;
@@ -298,13 +442,13 @@ function dispatchMessage(msg, sender) {
       }
     }
     if (!async) respond(undefined);
-    else setTimeout(() => respond(undefined), 60000);
+    else timer = setTimeout(() => respond(undefined), 60000);
   });
 }
 
 // ---- what gets injected into the game window --------------------------------------------------------
 const scripts = manifest.content_scripts[0].js;
-const cssText = manifest.content_scripts[0].css.map((f) => fs.readFileSync(path.join(ROOT, f), "utf8")).join("\n");
+const cssText = manifest.content_scripts[0].css.map((f) => text(f)).join("\n");
 
 // chrome.* for the isolated world, over a CDP binding (__ofrSend) one way and
 // Runtime.evaluate (__ofrReceive) the other.
@@ -315,7 +459,13 @@ if (!globalThis.__ofrLauncher) {
   const pending = new Map();
   const changed = [];
   const ports = new Map();
-  const send = (o) => globalThis.__ofrSend(JSON.stringify(o));
+  const send = (o) => {
+    try {
+      globalThis.__ofrSend(JSON.stringify(o));
+    } catch {
+      // the launcher is not attached right now; it re-attaches by itself
+    }
+  };
   const call = (kind, payload) => new Promise((resolve) => { const id = ++seq; pending.set(id, resolve); send({ id, kind, ...payload }); });
   globalThis.__ofrReceive = (m) => {
     if (m.kind === "reply") { const r = pending.get(m.id); pending.delete(m.id); r?.(m.value); }
@@ -333,7 +483,10 @@ if (!globalThis.__ofrLauncher) {
       id: "openfront-pro-launcher",
       lastError: undefined,
       getManifest: () => (${JSON.stringify(manifest)}),
-      getURL: (p) => ${JSON.stringify("HTTPBASE")} + "/" + String(p).replace(/^\\//, ""),
+      // Files the page needs are handed over as data (the alert sound), so no URL
+      // with the launcher's port and token ever shows up in the PAGE's own
+      // resource timing. Anything else resolves against the current launcher.
+      getURL: (p) => globalThis.__ofrAssets[String(p).replace(/^\\//, "")] ?? globalThis.__ofrBase + "/" + String(p).replace(/^\\//, ""),
       sendMessage: (msg) => call("message", { msg }),
       connect: ({ name } = {}) => {
         const portId = ++seq;
@@ -356,11 +509,15 @@ if (!globalThis.__ofrLauncher) {
 `;
 
 function isolatedSource() {
-  const body = scripts.map((f) => `try {\n${fs.readFileSync(path.join(ROOT, f), "utf8")}\n} catch (err) { console.error("[OpenFront Pro launcher] ${f}:", err); }`).join("\n");
-  const shim = WORLD_SHIM.replace(JSON.stringify("HTTPBASE"), JSON.stringify(httpBase)).replace(JSON.stringify("CSSTEXT"), JSON.stringify(cssText));
+  const body = scripts.map((f) => `try {\n${text(f)}\n} catch (err) { console.error("[OpenFront Pro launcher] ${f}:", err); }`).join("\n");
+  const shim = WORLD_SHIM.replace(JSON.stringify("CSSTEXT"), JSON.stringify(cssText));
+  const sound = `data:audio/wav;base64,${asset("sounds/alert.wav").toString("base64")}`;
   return `(() => {
   // the game page only: not the splash, the login gate or the tutorial player
-  if (location.protocol !== "app:" || location.pathname.startsWith("/__")) return;
+  if (!location.href.startsWith(${JSON.stringify(GAME_PREFIX)}) || location.pathname.startsWith("/__")) return;
+  // refreshed on every attach: a restarted launcher has a new port and token
+  globalThis.__ofrBase = ${JSON.stringify(httpBase)};
+  globalThis.__ofrAssets = { "sounds/alert.wav": ${JSON.stringify(sound)} };
   if (globalThis.__ofrInjected) return;
   globalThis.__ofrInjected = true;
   ${shim}
@@ -377,9 +534,9 @@ function isolatedSource() {
 }
 function mainWorldSource() {
   return `(() => {
-  if (location.protocol !== "app:" || location.pathname.startsWith("/__") || window.__ofrProbeInjected) return;
+  if (!location.href.startsWith(${JSON.stringify(GAME_PREFIX)}) || location.pathname.startsWith("/__") || window.__ofrProbeInjected) return;
   window.__ofrProbeInjected = true;
-  const run = () => { ${fs.readFileSync(path.join(SRC, "page-probe.js"), "utf8")} };
+  const run = () => { ${text("src/page-probe.js")} };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(run, 50), { once: true });
   else run();
 })();`;
@@ -402,45 +559,58 @@ async function attach(target) {
       pending.set(n, resolve);
       ws.send(JSON.stringify({ id: n, method, params }));
     });
-  let contextId = null; // our isolated world in the current document
+  let contextId = null; // our isolated world in the MAIN frame's current document
+  let mainFrameId = null; // an iframe (an ad, an embed) gets a world of the same name: never that one
   const ports = new Map(); // portId -> background-side port
 
-  const toPage = (message) => {
-    if (contextId === null) return;
-    send("Runtime.evaluate", { expression: `globalThis.__ofrReceive?.(${JSON.stringify(message)})`, contextId }).catch(() => {});
+  // The message travels as DATA (a JSON string, parsed on the other side), never
+  // as source code: names and chat text come from strangers. And it only goes to
+  // the context it is meant for - a reply for a document that has been replaced
+  // is dropped, not delivered to its successor.
+  const toPage = (message, ctx = contextId) => {
+    if (ctx === null || ctx !== contextId) return;
+    send("Runtime.evaluate", { expression: `globalThis.__ofrReceive?.(JSON.parse(${JSON.stringify(JSON.stringify(message))}))`, contextId: ctx }).catch(() => {});
   };
-  const closePorts = () => {
-    for (const p of ports.values()) for (const f of p.onClose) try { f(); } catch {}
+  const closePorts = (tellPage) => {
+    for (const [portId, p] of ports) {
+      if (tellPage) toPage({ kind: "port-closed", portId });
+      for (const f of p.onClose) try { f(); } catch {}
+    }
     ports.clear();
   };
   const onStorage = (changes, area) => toPage({ kind: "storage-changed", area, changes });
   storageListeners.add(onStorage);
 
-  async function fromPage(payload) {
+  async function fromPage(payload, ctx) {
     let m;
     try {
       m = JSON.parse(payload);
     } catch {
       return;
     }
+    if (!m || typeof m !== "object") return;
     const area = ["sync", "local", "session"].includes(m.area) ? m.area : "local";
-    if (m.kind === "storage.get") toPage({ kind: "reply", id: m.id, value: storageGet(area, m.keys) });
-    else if (m.kind === "storage.set") { storageSet(area, m.items); toPage({ kind: "reply", id: m.id }); }
-    else if (m.kind === "storage.remove") { storageRemove(area, m.keys); toPage({ kind: "reply", id: m.id }); }
-    else if (m.kind === "message") toPage({ kind: "reply", id: m.id, value: await dispatchMessage(m.msg, { url: "app://openfront" }) });
+    if (m.kind === "storage.get") toPage({ kind: "reply", id: m.id, value: storageGet(area, m.keys) }, ctx);
+    else if (m.kind === "storage.set") { storageSet(area, m.items); toPage({ kind: "reply", id: m.id }, ctx); }
+    else if (m.kind === "storage.remove") { storageRemove(area, m.keys); toPage({ kind: "reply", id: m.id }, ctx); }
+    else if (m.kind === "message") toPage({ kind: "reply", id: m.id, value: await dispatchMessage(m.msg, { url: "app://openfront" }) }, ctx);
     else if (m.kind === "port-open") {
       const p = { onMsg: [], onClose: [] };
       ports.set(m.portId, p);
       const port = {
         name: m.name,
-        postMessage: (msg) => toPage({ kind: "port-msg", portId: m.portId, msg: clone(msg) }),
-        disconnect: () => { ports.delete(m.portId); toPage({ kind: "port-closed", portId: m.portId }); },
+        postMessage: (msg) => toPage({ kind: "port-msg", portId: m.portId, msg: clone(msg) }, ctx),
+        disconnect: () => { ports.delete(m.portId); toPage({ kind: "port-closed", portId: m.portId }, ctx); },
         onMessage: { addListener: (f) => p.onMsg.push(f) },
         onDisconnect: { addListener: (f) => p.onClose.push(f) },
       };
       for (const f of bg.connect) try { f(port); } catch (err) { log("connect handler failed:", err.message); }
     } else if (m.kind === "port-post") {
-      for (const f of ports.get(m.portId)?.onMsg ?? []) try { f(m.msg); } catch (err) { log("port handler failed:", err.message); }
+      const p = ports.get(m.portId);
+      // A port this launcher does not know (it was restarted, or the port was
+      // dropped): say so, and the chat reconnects instead of talking into the void.
+      if (!p) return toPage({ kind: "port-closed", portId: m.portId }, ctx);
+      for (const f of p.onMsg) try { f(m.msg); } catch (err) { log("port handler failed:", err.message); }
     } else if (m.kind === "port-close") {
       const p = ports.get(m.portId);
       ports.delete(m.portId);
@@ -453,33 +623,38 @@ async function attach(target) {
     if (msg.id && pending.has(msg.id)) {
       pending.get(msg.id)(msg);
       pending.delete(msg.id);
+    } else if (msg.method === "Page.frameNavigated") {
+      if (!msg.params.frame.parentId) mainFrameId = msg.params.frame.id;
     } else if (msg.method === "Runtime.executionContextCreated") {
       const c = msg.params.context;
-      if (c.name === WORLD && c.auxData?.isDefault === false) contextId = c.id;
+      if (c.name === WORLD && c.auxData?.isDefault === false && c.auxData.frameId === mainFrameId) {
+        if (contextId !== null && contextId !== c.id) closePorts(false); // a new document replaced the old one
+        contextId = c.id;
+      }
     } else if (msg.method === "Runtime.executionContextDestroyed") {
       if (msg.params.executionContextId === contextId) {
         contextId = null;
-        closePorts(); // the page went away: the chat leaves its room
+        closePorts(false); // the page went away: the chat leaves its room
       }
     } else if (msg.method === "Runtime.executionContextsCleared") {
       contextId = null;
-      closePorts();
+      closePorts(false);
     } else if (msg.method === "Runtime.bindingCalled" && msg.params.name === "__ofrSend") {
-      if (msg.params.executionContextId === contextId || contextId === null) {
-        if (contextId === null) contextId = msg.params.executionContextId;
-        fromPage(msg.params.payload);
-      }
+      // only our world in the main frame; an iframe's world of the same name is ignored
+      if (msg.params.executionContextId === contextId) fromPage(msg.params.payload, contextId).catch((err) => log("bridge:", err.message));
     }
   });
   ws.addEventListener("close", () => {
     storageListeners.delete(onStorage);
-    closePorts();
+    closePorts(false);
     attached.delete(target.id);
     log("game window closed or debugger detached");
   });
 
-  await send("Runtime.enable");
+  // Learn which frame is the main one BEFORE contexts start being reported.
   await send("Page.enable");
+  mainFrameId = (await send("Page.getFrameTree")).result?.frameTree?.frame?.id ?? null;
+  await send("Runtime.enable");
   await send("Runtime.addBinding", { name: "__ofrSend", executionContextName: WORLD });
   const iso = isolatedSource();
   const main = mainWorldSource();
@@ -487,8 +662,7 @@ async function attach(target) {
   await send("Page.addScriptToEvaluateOnNewDocument", { source: iso, worldName: WORLD });
   await send("Page.addScriptToEvaluateOnNewDocument", { source: main });
   // ...and the one that is already there
-  const tree = await send("Page.getFrameTree");
-  const frameId = tree.result?.frameTree?.frame?.id;
+  const frameId = mainFrameId;
   if (frameId) {
     const world = await send("Page.createIsolatedWorld", { frameId, worldName: WORLD });
     const ctx = world.result?.executionContextId;
@@ -508,7 +682,7 @@ async function attach(target) {
 async function targets() {
   try {
     const list = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json();
-    return list.filter((t) => t.type === "page" && String(t.url).startsWith("app://openfront"));
+    return list.filter((t) => t.type === "page" && String(t.url).startsWith(GAME_PREFIX));
   } catch {
     return null; // nothing is listening
   }
@@ -571,3 +745,9 @@ setInterval(async () => {
     }
   }
 }, 3000);
+}
+
+main().catch((err) => {
+  console.error("launcher failed:", err);
+  process.exit(1);
+});

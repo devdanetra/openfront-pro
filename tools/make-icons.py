@@ -89,6 +89,11 @@ save(plain, os.path.join(ROOT, "icons", "icon48.png"), 48)
 save(big, os.path.join(ROOT, "icons", "icon128.png"), 128)
 save(big, os.path.join(ROOT, "store", "icon-512.png"), 512)
 
+# Windows icon for the Steam launcher executable
+os.makedirs(os.path.join(ROOT, "launcher"), exist_ok=True)
+big.resize((256, 256), Image.LANCZOS).save(os.path.join(ROOT, "launcher", "icon.ico"), format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (256, 256)])
+print("launcher/icon.ico")
+
 store_icon = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
 art = big.resize((96, 96), Image.LANCZOS)
 store_icon.paste(art, (16, 16), art)

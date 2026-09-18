@@ -20,3 +20,6 @@ Thumbs.db
 
 # read-only notes taken from the Steam build while writing the launcher
 .steam-peek/
+dist/
+.keys/
+*.crx
