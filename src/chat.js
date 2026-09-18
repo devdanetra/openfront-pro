@@ -350,18 +350,11 @@
     const status = el("span", "ofr-chat-status");
     const mutes = el("button", "ofr-chat-mutes");
     mutes.type = "button";
-    const reportLink = el("button", "ofr-chat-mutes", "Report");
-    reportLink.type = "button";
-    reportLink.title = "Report abuse to the extension's maintainers (opens GitHub)";
-    reportLink.addEventListener("click", (e) => {
-      if (!e.isTrusted) return;
-      window.open("https://github.com/devdanetra/openfront-pro/issues/new?labels=chat-abuse&title=Chat%20abuse%20report", "_blank", "noopener");
-    });
     const fold = el("button", "ofr-btn ofr-btn-icon ofr-chat-fold", "−");
     fold.type = "button";
     fold.title = "Fold chat";
     fold.setAttribute("aria-label", "Fold chat");
-    head.append(title, status, mutes, reportLink, fold);
+    head.append(title, status, mutes, fold);
     const tabs = el("div", "ofr-chat-tabs ofr-tabs");
     tabs.setAttribute("role", "tablist");
     tabs.setAttribute("aria-label", "Chat rooms");

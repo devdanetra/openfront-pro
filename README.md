@@ -476,8 +476,7 @@ What that means, plainly:
 - The chat is **public**: anyone connected to those relays can read a room, not
   only users of this extension. While it is on (and not paused), your name is
   announced to the room about every 45-60 seconds even if you do not type.
-- **Report** in the panel opens the project's issue tracker - there is no
-  server, so that and muting are the tools.
+- There is no server to report to, so muting is the tool.
 - The page itself is not trusted: OpenFront's pages carry third-party ad
   scripts, which share the DOM with any content-script UI. The panel lives in a
   **closed shadow root** (page scripts cannot read messages or the input box) and

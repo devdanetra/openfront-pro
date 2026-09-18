@@ -1214,12 +1214,16 @@
 
   // ---- share image ---------------------------------------------------------------------------
   function drawCard(model, { icon = () => "", progress = [] } = {}) {
+    // Laid out at 1200x630 (the size link previews use), drawn at twice the pixels
+    // so it stays sharp when Discord or a phone shows it large.
     const W = 1200;
     const H = 630;
+    const PX = 2;
     const canvas = document.createElement("canvas");
-    canvas.width = W;
-    canvas.height = H;
+    canvas.width = W * PX;
+    canvas.height = H * PX;
     const ctx = canvas.getContext("2d");
+    ctx.scale(PX, PX);
     const css = getComputedStyle(document.documentElement);
     const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
     const col = {
@@ -1237,11 +1241,40 @@
     };
     const font = token("--ofr-ui-font", "system-ui, sans-serif");
     const setFont = (weight, size) => (ctx.font = `${weight} ${size}px ${font}`);
+    // Text that must fit `max` px: first the font shrinks (down to 70% of its
+    // size), and only then is the end cut off.
     const fit = (text, max) => {
       let t = String(text);
+      const m = /(\d+(?:\.\d+)?)px/.exec(ctx.font);
+      if (m && ctx.measureText(t).width > max) {
+        const size = Number(m[1]);
+        for (let s = size - 1; s >= Math.floor(size * 0.7); s--) {
+          ctx.font = ctx.font.replace(/\d+(?:\.\d+)?px/, `${s}px`);
+          if (ctx.measureText(t).width <= max) return t;
+        }
+      }
       if (ctx.measureText(t).width <= max) return t;
-      while (t.length > 1 && ctx.measureText(`${t}...`).width > max) t = t.slice(0, -1);
-      return `${t}...`;
+      while (t.length > 1 && ctx.measureText(`${t}…`).width > max) t = t.slice(0, -1);
+      return `${t.trimEnd()}…`;
+    };
+    // Up to `lines` lines of at most `max` px, broken at spaces; the last one fitted.
+    const wrap = (text, max, lines) => {
+      const words = String(text).split(/\s+/).filter(Boolean);
+      const out = [];
+      let line = "";
+      while (words.length && out.length < lines - 1) {
+        const next = line ? `${line} ${words[0]}` : words[0];
+        if (ctx.measureText(next).width <= max || !line) {
+          line = next;
+          words.shift();
+        } else {
+          out.push(line);
+          line = "";
+        }
+      }
+      const rest = [line, ...words].filter(Boolean).join(" ");
+      if (rest) out.push(rest);
+      return out;
     };
     const round = (x, y, w, h, r) => {
       ctx.beginPath();
@@ -1396,7 +1429,9 @@
         setFont(700, 18);
         const right = s.me.x > s.end / 2;
         ctx.textAlign = right ? "right" : "left";
-        ctx.fillText(s.me.alive ? "alive at the end" : `out ${mmss(s.me.x)}`, sx(s.me.x) + (right ? -14 : 14), sy(s.me.y) - 12);
+        // above the dot, unless that would run into the chart's title: then below it
+        const labelY = sy(s.me.y) - 12 < gy + 18 ? sy(s.me.y) + 30 : sy(s.me.y) - 12;
+        ctx.fillText(s.me.alive ? "alive at the end" : `out ${mmss(s.me.x)}`, sx(s.me.x) + (right ? -14 : 14), labelY);
         ctx.textAlign = "left";
       }
       setFont(500, 16);
@@ -1420,10 +1455,15 @@
         ctx.fillText(n.head, rx, ry);
         ry += 26;
       }
-      setFont(500, 22);
+      setFont(500, 21);
       ctx.fillStyle = col.text;
-      ctx.fillText(fit(n.body, rw), rx, ry);
-      ry += n.head ? 38 : 34;
+      const room = Math.max(1, Math.floor((H - 110 - ry) / 28) + 1);
+      const lines = wrap(n.body, rw, Math.min(2, room));
+      lines.forEach((line, i) => {
+        setFont(500, 21);
+        ctx.fillText(i === lines.length - 1 ? fit(line, rw) : line, rx, ry + i * 27);
+      });
+      ry += (lines.length - 1) * 27 + (n.head ? 38 : 34);
     }
 
     // footer

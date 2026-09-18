@@ -127,18 +127,32 @@
     } else if (drawCredit(x + 3 * 150)) right = W - 8 - creditW - 12;
     ctx.font = "600 13px system-ui, sans-serif";
     const top = s.top.filter((t) => t.share > 0);
-    const slot = top.length ? (right - x) / top.length : 0;
-    for (const t of top) {
-      const from = x;
-      ctx.fillStyle = `rgb(${t.rgb.join(",")})`;
-      ctx.fillRect(x, y - 6, 12, 12);
-      x += 17;
+    // Each name gets what it needs; only when the three together do not fit is
+    // the space shared out, the longest names giving way first.
+    const items = top.map((t) => {
       const share = pct(t.share);
       const who = t.me ? "you" : opts.streamer ? "" : t.name;
-      const room = slot - 17 - 14 - ctx.measureText(` ${share}`).width;
-      put(`${fit(who, Math.max(20, room))} ${share}`.trim(), "#cbd5e1");
-      x = Math.max(x, Math.min(from + slot, x)); // never run into the next slot
-      if (x > right) break;
+      return { t, share, who, fixed: 17 + 14 + ctx.measureText(` ${share}`).width, want: ctx.measureText(who).width };
+    });
+    const avail = right - x;
+    let cap = Infinity;
+    const need = (c) => items.reduce((sum, it) => sum + it.fixed + Math.min(it.want, c), 0);
+    if (need(Infinity) > avail) {
+      let lo = 20;
+      let hi = Math.max(20, ...items.map((it) => it.want));
+      for (let i = 0; i < 20; i++) {
+        const mid = (lo + hi) / 2;
+        if (need(mid) > avail) hi = mid;
+        else lo = mid;
+      }
+      cap = lo;
+    }
+    for (const it of items) {
+      if (x + it.fixed > right) break;
+      ctx.fillStyle = `rgb(${it.t.rgb.join(",")})`;
+      ctx.fillRect(x, y - 6, 12, 12);
+      x += 17;
+      put(`${fit(it.who, Math.max(20, cap))} ${it.share}`.trim(), "#cbd5e1");
     }
   }
 
@@ -328,9 +342,11 @@
     let list = shot.list;
     if (list.length > maxFrames) list = Array.from({ length: maxFrames }, (_, k) => list[Math.round((k * (list.length - 1)) / (maxFrames - 1))]); // the last one is the end of the game
     const { canvas, ctx } = stage(shot.w, shot.h);
-    const scale = 1; // GIFs get big fast: native frame size
-    canvas.width = shot.w;
-    canvas.height = shot.h + hudHeight(shot.w);
+    // Twice the recorded frame (up to ~960 px wide), so names and numbers in the
+    // strip fit and the map reads on a phone; delta frames keep the file small.
+    const scale = Math.max(1, Math.min(2, Math.floor(960 / Math.max(1, shot.w))));
+    canvas.width = shot.w * scale;
+    canvas.height = shot.h * scale + hudHeight(canvas.width);
     const W = canvas.width;
     const H = canvas.height;
 

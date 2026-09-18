@@ -74,9 +74,10 @@ item. Answer support mail within 3 business days.
   popup title, `installNavButton()` in `src/content.js` has a plain-pill
   fallback already) - about ten minutes.
 - **Chat** is user-generated content on third-party relays. It is off by
-  default, behind its own consent, masked, mutable and has a report link; Google
-  has no written UGC rule for extensions, but a harassment complaint would land
-  on you. It can be removed from a build by deleting `src/chat.js` from the
+  default, behind its own consent, masked and mutable (the in-panel Report link
+  was removed in 5.9; abuse reports go through the repository's issue page named
+  in PRIVACY.md). Google has no written UGC rule for extensions, but a harassment
+  complaint would land on you. It can be removed from a build by deleting `src/chat.js` from the
   manifest and the Chat block from `src/popup.html`.
 
 ## After it is live
