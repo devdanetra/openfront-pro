@@ -475,7 +475,7 @@ a.ofr-game:hover { background: var(--ofr-btn-hover); }
   background: var(--ofr-btn-bg);
   color: var(--ofr-text);
   font: inherit;
-  width: 180px;
+  width: 200px; /* room for the "[TAG] name" hint */
 }
 .ofr-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 14px; margin-bottom: 14px; }
 .ofr-vs-side { display: flex; align-items: center; justify-content: flex-end; gap: 12px; min-width: 0; }

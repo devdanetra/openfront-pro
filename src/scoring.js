@@ -95,6 +95,17 @@ function rowRank(row) {
   return { ratio, pct: topPercent(ratio) };
 }
 
+// The name ofstats knows a player by: the display name exactly as OpenFront
+// builds it (formatPlayerDisplayName), "[TAG] name" with one space when they
+// play with a clan tag, the bare name when they do not. A tagged player's bare
+// name is a different identity there, often somebody else, so a lookup never
+// falls back from one to the other. The bare name stays what identifies the
+// person in the game (display, roster, "is this me").
+function statsName(name, clan) {
+  if (!name) return null;
+  return clan ? `[${clan}] ${name}` : name;
+}
+
   globalThis.OFR_SCORING = {
     SHRINK_K,
     MIN_RATED_GAMES,
@@ -106,5 +117,6 @@ function rowRank(row) {
     formatPercent,
     ranked,
     rowRank,
+    statsName,
   };
 })();

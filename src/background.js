@@ -2,10 +2,12 @@
 // host_permissions instead of the page's CORS policy (ofstats sends no
 // Access-Control-Allow-Origin, so a page-context fetch is blocked).
 //
-// ofstats aggregates every public OpenFront game by username, which is the only
-// key the lobby gives us. It answers for nearly every player who has played
-// before: measured on a real 94-player lobby roster, 29 of the 32 names that
-// were not throwaway guest handles had data.
+// ofstats aggregates every public OpenFront game by display name, the only key
+// the lobby gives us: "[TAG] name" for a player with a clan tag, the bare name
+// otherwise (OFR_SCORING.statsName builds it; callers send it, this worker
+// looks up and caches whatever name it is given). It answers for nearly every
+// player who has played before: measured on a real 94-player lobby roster, 29
+// of the 32 names that were not throwaway guest handles had data.
 
 // Chat: BIP-340 signing (vendored @noble) and the small Nostr client built on it.
 importScripts("vendor/nostr-crypto.js", "nostr.js", "team.js");
@@ -15,7 +17,9 @@ const OFSTATS_API = "https://api.ofstats.io";
 const HIT_TTL_MS = 10 * 60 * 1000;
 const MISS_TTL_MS = 30 * 60 * 1000;
 const MAX_CONCURRENT = 6;
-const CACHE_PREFIX = "ofs5:";
+// ofs6: lookups became "[TAG] name" for tagged players; ofs5 held bare-name
+// entries (and clan members without their full name), so none is served again.
+const CACHE_PREFIX = "ofs6:";
 
 const memoryCache = new Map();
 const inFlight = new Map();
@@ -236,7 +240,9 @@ async function fetchStats(username) {
   };
 }
 
-// ofstats keys clans on the bare tag. Members come back as "[TAG] name".
+// ofstats keys clans on the bare tag. Members come back as "[TAG] name", which
+// is also their player key there: `username` keeps it for lookups, `name` is
+// the bare name for display.
 async function fetchClan(tag) {
   const res = await fetch(`${OFSTATS_API}/clans/${encodeURIComponent(tag)}`, {
     headers: { accept: "application/json" },
@@ -260,6 +266,7 @@ async function fetchClan(tag) {
     modes: Array.isArray(d.modeBreakdown) ? d.modeBreakdown : d.modeBreakdown ?? null,
     members: (Array.isArray(d.members) ? d.members : []).slice(0, 50).map((m) => ({
       name: strip(m.username),
+      username: String(m.username ?? ""),
       games: m.gamesPlayed ?? 0,
       wins: m.wins ?? 0,
       winRate: m.winRate ?? null,
@@ -553,6 +560,10 @@ function normaliseRecord(data, gameId) {
     players: (info.players ?? [])
       .filter((p) => p.username)
       .map((p) => ({
+        // The bare name and the tag, separately. The archive keeps the real tag
+        // even where the lobby hid it (clan tags disabled, names anonymised:
+        // toWireGameStartInfo in the game's src/core/Util.ts). ofstats knows the
+        // player as "[clanTag] username" when there is a tag: OFR_SCORING.statsName.
         username: p.username,
         clanTag: p.clanTag ?? null,
         clientID: p.clientID ?? null,

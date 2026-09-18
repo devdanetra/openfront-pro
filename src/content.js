@@ -193,9 +193,10 @@ function isSelf(name) {
   return !!me && !!name && me.toLowerCase() === name.toLowerCase();
 }
 
-// Opens the Pro dashboard (dashboard.js) for a player, with their clan when
-// the lobby has told us one.
-function openDashboard(name) {
+// Opens the Pro dashboard (dashboard.js) for a player (the bare name), with
+// their clan tag: the one shown next to the name that was clicked, else the
+// lobby's. The dashboard looks up, shows and links the tagged name.
+function openDashboard(name, clan) {
   if (!settings.enabled) return; // "everything off" means the dashboard too
   if (!settings.dataConsent) {
     // the dashboard is made of lookups; ask first
@@ -206,13 +207,19 @@ function openDashboard(name) {
   // A guest handle ("AnonRelic3") or a hidden name is nobody in particular;
   // open the empty dashboard with its search box instead of looking it up.
   if (name && placeholderKind(name)) name = null;
-  const entry = name ? roster.get(name.toLowerCase()) : null;
-  globalThis.__ofrOpenDashboard(name ?? null, {
-    clan: entry?.clan ?? null,
+  const tag = !name ? null : clan !== undefined ? clan || null : (roster.get(name.toLowerCase())?.clan ?? null);
+  globalThis.__ofrOpenDashboard(name ? statsName(name, tag) : null, {
+    clan: tag,
     clanStats: settings.clanStats,
     self: !!name && isSelf(name),
     streamer: settings.streamerMode,
   });
+}
+
+// Your own dashboard, under the tag you play with.
+function openSelfDashboard() {
+  const me = selfIdentity();
+  openDashboard(me?.name ?? null, me?.clan ?? null);
 }
 
 // The stats card on the front page, placed right under the username field.
@@ -243,12 +250,13 @@ function installHomeWidget() {
   }
   const host = strip.parentElement;
   if (!host || host === document.body) return;
-  const me = selfName();
-  const name = me && !placeholderKind(me) ? me : null;
+  // Your ofstats name: "[TAG] name" with the TAG field set, the bare name without.
+  const me = selfIdentity();
+  const name = selfStatsName();
   globalThis.__ofrHomeWidget(host, name, {
     after: strip,
     streamer: settings.streamerMode,
-    clan: name ? (roster.get(name.toLowerCase())?.clan ?? null) : null,
+    clan: name ? (me?.clan ?? null) : null,
     clanStats: settings.clanStats,
   });
 }
@@ -278,7 +286,7 @@ function installNavButton() {
   button.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation(); // the logo itself is a link home
-    openDashboard(selfName());
+    openSelfDashboard();
   });
 
   // Preferred spot: inside the logo block (wordmark + version), as a small
@@ -361,9 +369,10 @@ function placeholderKind(username) {
   return null;
 }
 
-// Names are `[CLAN] username`; ofstats is keyed on the bare username, and
-// badges (verified check, host tag, kick button) are separate elements, so
-// only direct text nodes count.
+// Names are `[CLAN] username`. The bare name is the person in the game (roster,
+// "is this me", placeholders); ofstats is keyed on the whole `[CLAN] username`
+// (statsName). Badges (verified check, host tag, kick button) are separate
+// elements, so only direct text nodes count.
 function readNameParts(el) {
   let raw = "";
   for (const node of el.childNodes) {
@@ -379,6 +388,12 @@ function readNameParts(el) {
 
 function readName(el) {
   return readNameParts(el)?.name ?? null;
+}
+
+// What a name cell is looked up as on ofstats.
+function readStatsName(el) {
+  const parts = readNameParts(el);
+  return parts ? statsName(parts.name, parts.clan) : null;
 }
 
 // Labels the lobby renders beside a name — "(host)", the kick "×", a team tag —
@@ -410,19 +425,42 @@ function scanPlayersList(list) {
 }
 
 // The viewer, so head-to-head has something to compare against. The lobby marks
-// their own row; localStorage is the fallback once the lobby is gone.
-function selfName() {
+// their own row ("[TAG] name", as the server accepted it); localStorage is the
+// fallback once the lobby is gone. OpenFront's front page (UsernameInput.ts)
+// keeps the name under "username" and the TAG field under "clanTag" ("" for
+// none), side by side. Nothing else of OpenFront's storage is read.
+const STORED_TAG = /^[A-Za-z0-9]{1,5}$/;
+function selfIdentity() {
   const marked = document.querySelector(
     ".player-tag.current-player span.text-white",
   );
-  const fromLobby = marked ? readName(marked) : null;
+  const fromLobby = marked ? readNameParts(marked) : null;
   if (fromLobby) return fromLobby;
   try {
-    return localStorage.getItem("username");
+    const name = localStorage.getItem("username");
+    if (!name) return null;
+    const tag = localStorage.getItem("clanTag");
+    return { name, clan: tag && STORED_TAG.test(tag) ? tag : null };
   } catch {
     return null;
   }
 }
+
+// The bare name: who you are in the game.
+function selfName() {
+  return selfIdentity()?.name ?? null;
+}
+
+// ...and who you are on ofstats. Null for a guest or hidden name.
+function selfStatsName() {
+  const me = selfIdentity();
+  return me?.name && !placeholderKind(me.name) ? statsName(me.name, me.clan) : null;
+}
+// The dashboard's "is this me" (dashboard.js): the same name, a guest one too.
+globalThis.__ofrSelfStatsName = () => {
+  const me = selfIdentity();
+  return me?.name ? statsName(me.name, me.clan) : null;
+};
 
 function collectTargets() {
   const seen = new Set();
@@ -454,7 +492,7 @@ function collectTargets() {
     if (!parts) continue;
     const placeholder = placeholderKind(parts.name);
     if (!placeholder) current.set(parts.name.toLowerCase(), parts);
-    targets.push({ el, username: parts.name, placeholder });
+    targets.push({ el, username: parts.name, clan: parts.clan, lookupName: statsName(parts.name, parts.clan), placeholder });
   }
   if (current.size > 0) {
     roster.clear();
@@ -487,7 +525,7 @@ function collectTargets() {
     ) {
       continue;
     }
-    targets.push({ el, username: parts.name, placeholder });
+    targets.push({ el, username: parts.name, clan: parts.clan, lookupName: statsName(parts.name, parts.clan), placeholder });
   }
 
   return targets;
@@ -503,7 +541,13 @@ const {
   percentBand,
   formatPercent,
   ranked,
+  statsName,
 } = globalThis.OFR_SCORING;
+
+// The key `known` and the worker's cache use: the ofstats name, lowercased.
+function statsKey(name, clan) {
+  return statsName(name, clan)?.toLowerCase() ?? null;
+}
 
 // --- Per-map skill -----------------------------------------------------------
 // ofstats keys map rows by display name ("New York City"); the probe reports the
@@ -655,7 +699,7 @@ function formatMissing(placeholder, info) {
 // Shared games between the viewer and this player, from the 60 most recent on
 // each side — so it only fires for people you actually keep running into.
 function headToHead(info) {
-  const me = selfName();
+  const me = selfStatsName();
   if (!me) return null;
   const mine = known.get(me.toLowerCase());
   if (!mine?.recentGames?.length || !info?.recentGames?.length) return null;
@@ -674,8 +718,9 @@ function headToHead(info) {
   return met > 0 ? { met, iWon, theyWon } : null;
 }
 
-function tooltip(username, info) {
-  const lines = [username];
+// label: the name as looked up ("[TAG] name"); username: the bare name.
+function tooltip(username, info, label = username) {
+  const lines = [label];
   lines.push(
     `${info.wins} wins in ${info.games} public games (${info.winRate.toFixed(1)}%)`,
   );
@@ -729,13 +774,16 @@ function tooltip(username, info) {
   return lines.join("\n");
 }
 
-function applyBadge(el, username, placeholder, info) {
+// username: the bare name (self, watchlist, profile); clan: the tag shown with
+// it. The element is stamped with the ofstats name, the key `known` is under.
+function applyBadge(el, username, placeholder, info, clan = null) {
+  const lookupName = statsName(username, clan);
   // Streamer mode: your own row shows no rank and your name is blurred, so a
   // stream or screenshot gives nothing away about you.
   if (settings.streamerMode && isSelf(username)) {
     el.querySelector(`:scope > .${BADGE_CLASS}`)?.remove();
     el.classList.add("ofr-streamer");
-    el.setAttribute(NAME_ATTR, username);
+    el.setAttribute(NAME_ATTR, lookupName);
     return;
   }
   el.classList.remove("ofr-streamer");
@@ -746,7 +794,7 @@ function applyBadge(el, username, placeholder, info) {
 
   if (!formatted) {
     existing?.remove();
-    el.setAttribute(NAME_ATTR, username);
+    el.setAttribute(NAME_ATTR, lookupName);
     return;
   }
 
@@ -760,14 +808,16 @@ function applyBadge(el, username, placeholder, info) {
   badge.textContent = formatted.text;
   badge.title =
     formatted.kind === "missing"
-      ? `${username}\n${MISSING_TOOLTIP[formatted.reason] ?? ""}`
-      : tooltip(username, info);
+      ? `${lookupName}\n${MISSING_TOOLTIP[formatted.reason] ?? ""}`
+      : tooltip(username, info, lookupName);
 
   if (formatted.kind === "missing") {
     delete badge.dataset.ofrProfile;
+    delete badge.dataset.ofrClan;
     badge.removeAttribute("role");
   } else {
     badge.dataset.ofrProfile = username;
+    badge.dataset.ofrClan = clan ?? "";
     badge.setAttribute("role", "link");
   }
   if (watchlist.has(username.toLowerCase())) {
@@ -780,7 +830,7 @@ function applyBadge(el, username, placeholder, info) {
   }
 
   if (!existing) el.appendChild(badge);
-  el.setAttribute(NAME_ATTR, username);
+  el.setAttribute(NAME_ATTR, lookupName);
 }
 
 async function toggleWatch(name) {
@@ -891,19 +941,23 @@ function noteClientId() {
 }
 
 function recapContext(gameId = currentGameId()) {
-  const raw = selfName();
+  // `me` is the bare name the record's rows are matched on; the tag is the one
+  // your own lobby row showed or the front page's TAG field (localStorage).
+  const self = selfIdentity();
+  const raw = self?.name ?? null;
   const me = raw && !placeholderKind(raw) ? raw.replace(/^\[[^\]]*\]\s*/u, "").trim().toLowerCase() : null;
   const lobby = readMapInfo();
   return {
     me,
-    myClan: me ? (roster.get(me)?.clan ?? null) : null,
+    myClan: me ? (self?.clan ?? roster.get(me)?.clan ?? null) : null,
     myClientId: gameId ? (myClientIds.get(gameId) ?? null) : null,
     myPublicId,
     streamer: settings.streamerMode === true,
     map: lobby?.map ?? lastLobbyMap,
     mode: lobby?.mode ?? lastLobbyMode,
-    pctOf: (name) => {
-      const info = known.get(name);
+    // key: a player's ofstats name, lowercased (recap.js builds it from the record)
+    pctOf: (key) => {
+      const info = known.get(key);
       return info?.found ? (ranked(info)?.pct ?? null) : null;
     },
   };
@@ -915,14 +969,16 @@ function recapContext(gameId = currentGameId()) {
 const RECAP_LOOKUP_CAP = 80;
 async function lookupRecapPlayers(record, model) {
   const wanted = [];
-  const add = (name) => {
-    const key = name?.toLowerCase();
-    if (!key || known.has(key) || placeholderKind(name) || wanted.includes(name)) return;
+  // The record carries the bare name and the tag apart; ofstats wants "[TAG] name".
+  const add = (p) => {
+    if (!p?.username || placeholderKind(p.username)) return;
+    const name = statsName(p.username, p.clanTag);
+    if (known.has(name.toLowerCase()) || wanted.includes(name)) return;
     wanted.push(name);
   };
-  for (const p of record.players) if (p.winner) add(p.username);
-  for (const a of model.awards ?? []) add(a.holder?.username);
-  for (const p of record.players) if (p.active) add(p.username);
+  for (const p of record.players) if (p.winner) add(p);
+  for (const a of model.awards ?? []) add(a.holder);
+  for (const p of record.players) if (p.active) add(p);
   const batch = wanted.slice(0, RECAP_LOOKUP_CAP);
   if (batch.length === 0) return false;
   try {
@@ -1042,7 +1098,7 @@ async function loadRecap(gameId) {
     gameId,
     streamer: settings.streamerMode === true,
     avoidRect: winModalRect,
-    onDashboard: () => openDashboard(selfName()),
+    onDashboard: () => openSelfDashboard(),
     onToggle: (min) => {
       if (alive()) chrome.storage.local.set({ [RECAP_MIN_KEY]: min }).catch(() => {});
     },
@@ -1090,7 +1146,7 @@ async function loadRecap(gameId) {
       await recordSession(model, gameId, seenAt);
       await forgetPendingRecap(gameId);
       if (model.state !== "ok") return;
-      const meBefore = known.get(recapContext().me ?? "");
+      const meBefore = known.get(selfStatsName()?.toLowerCase() ?? "");
       if ((await lookupRecapPlayers(record, model)) && widget.el.isConnected && alive()) {
         model = R.analyse(record, recapContext(gameId));
         lastRecap = model;
@@ -1191,8 +1247,8 @@ async function recordGame(entry) {
 // lookup, bypassing the cache), plus the running session line. Only for a game
 // you actually played. The game itself is already in the session by now.
 async function appendSelfProgress(widget, model, gameId, beforeInfo) {
-  const me = selfName();
-  if (!me || placeholderKind(me) || !model?.me) return;
+  const me = selfStatsName(); // "[TAG] name" when you play with a tag
+  if (!me || !model?.me) return;
   const key = me.toLowerCase();
   const before = beforeInfo?.found ? (ranked(beforeInfo)?.pct ?? null) : null;
 
@@ -1261,7 +1317,7 @@ function announceWatched() {
     const id = `${lobby}|${key}`;
     if (announced.has(id)) continue;
     announced.add(id);
-    const info = known.get(key);
+    const info = known.get(statsKey(entry.name, entry.clan));
     const rank = info?.found ? ranked(info) : null;
     const text = `${icon("star")} ${entry.name} is in this lobby${rank ? ` (Top ${formatPercent(rank.pct)}%)` : ""}`;
     toast(text);
@@ -1315,7 +1371,8 @@ window.addEventListener(
     // player's ofstats.io page in a new tab instead; that route now lives only
     // as the "Open on ofstats.io" link inside the dashboard. A stored
     // profileLink of "ofstats" from an older version is treated as "dashboard".
-    openDashboard(badge.dataset.ofrProfile);
+    // The tag is the one this badge's row shows ("" = none), not a guess.
+    openDashboard(badge.dataset.ofrProfile, badge.dataset.ofrClan);
   },
   true,
 );
@@ -1378,9 +1435,9 @@ function averagePercent(infos) {
 // Clans with more than one player in the room, strongest first.
 function clanGroups() {
   const clans = new Map();
-  for (const [key, entry] of roster) {
+  for (const entry of roster.values()) {
     if (!entry.clan) continue;
-    const info = known.get(key);
+    const info = known.get(statsKey(entry.name, entry.clan));
     if (!info?.found || !ranked(info)) continue;
     const list = clans.get(entry.clan) ?? [];
     list.push({ info, name: entry.name });
@@ -1400,8 +1457,8 @@ function clanGroups() {
 function lobbySummary(withClans = true) {
   const infos = [];
   let unranked = 0;
-  for (const key of roster.keys()) {
-    const info = known.get(key);
+  for (const entry of roster.values()) {
+    const info = known.get(statsKey(entry.name, entry.clan));
     if (info?.found && ranked(info)) infos.push(info);
     else unranked++;
   }
@@ -1491,8 +1548,8 @@ window.addEventListener(
     e.preventDefault();
     e.stopPropagation();
     if (typeof globalThis.__ofrOpenDashboard === "function") {
-      const lead = chip.dataset.ofrLead;
-      globalThis.__ofrOpenDashboard(lead, {
+      const lead = chip.dataset.ofrLead; // bare; a member of this clan, so looked up tagged
+      globalThis.__ofrOpenDashboard(lead ? statsName(lead, chip.dataset.ofrClan) : null, {
         clan: chip.dataset.ofrClan,
         clanStats: true,
         self: !!lead && isSelf(lead),
@@ -1508,8 +1565,8 @@ window.addEventListener(
 function lobbyReport() {
   const info = readMapInfo();
   const rows = [];
-  for (const [key, entry] of roster) {
-    const data = known.get(key);
+  for (const entry of roster.values()) {
+    const data = known.get(statsKey(entry.name, entry.clan));
     const rank = data?.found ? ranked(data) : null;
     rows.push({ entry, data, rank });
   }
@@ -1797,8 +1854,9 @@ async function refresh() {
 
   // Lit reuses the same elements across re-renders, so an element may now hold
   // a different player; those need a fresh lookup even though they are stamped.
+  // (Stamped with the ofstats name, so a changed clan tag counts as a change.)
   const stale = targets.filter(
-    (t) => t.el.getAttribute(NAME_ATTR) !== t.username,
+    (t) => t.el.getAttribute(NAME_ATTR) !== t.lookupName,
   );
   if (stale.length === 0) return;
   for (const { el } of stale) {
@@ -1809,16 +1867,18 @@ async function refresh() {
   // belong to anyone.
   for (const target of stale.filter((t) => t.placeholder)) {
     if (target.el.isConnected) {
-      applyBadge(target.el, target.username, target.placeholder, null);
+      applyBadge(target.el, target.username, target.placeholder, null, target.clan);
     }
   }
 
+  // Looked up as "[TAG] name" when the row shows a tag: that is the player's
+  // key on ofstats. Their bare name would be somebody else's record there.
   const lookups = stale.filter((t) => !t.placeholder);
-  const usernames = [...new Set(lookups.map((t) => t.username))];
+  const usernames = [...new Set(lookups.map((t) => t.lookupName))];
   // The viewer's own history is what head-to-head compares against, so fetch it
   // even when they are not among the names being scanned.
-  const me = selfName();
-  if (me && !placeholderKind(me) && !known.has(me.toLowerCase())) {
+  const me = selfStatsName();
+  if (me && !known.has(me.toLowerCase()) && !usernames.includes(me)) {
     usernames.push(me);
   }
   if (usernames.length === 0) return;
@@ -1848,10 +1908,10 @@ async function refresh() {
     known.set(name.toLowerCase(), info);
   }
 
-  for (const { el, username } of lookups) {
+  for (const { el, username, clan, lookupName } of lookups) {
     if (!el.isConnected) continue;
-    if (readName(el) !== username) continue; // re-rendered mid-flight
-    applyBadge(el, username, null, results[username]);
+    if (readStatsName(el) !== lookupName) continue; // re-rendered mid-flight
+    applyBadge(el, username, null, results[lookupName], clan);
   }
 
   renderSummary();

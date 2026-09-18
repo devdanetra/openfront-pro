@@ -91,7 +91,7 @@ a room, not only users of this extension. Do not share personal information
 there. Names in chat are not verified.
 
 The extension reads OpenFront's pages in your browser in order to work: player
-names, lobby settings, your username from the page's own storage, your per-game
+names, lobby settings, your username and clan tag from the page's own storage, your per-game
 public client id and public player id, and, while a game runs, who owns which
 part of the map and every player's name, colour and share of the land (for the
 timelapse, when it records), and your team's roster with each player's

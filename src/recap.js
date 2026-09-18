@@ -97,7 +97,8 @@
         return {
           ...p,
           stats: { ...p.stats, conquests: { ...p.stats.conquests, humans, total: humans + p.stats.conquests.nations + p.stats.conquests.bots } },
-          pct: pctOf(p.username.toLowerCase()),
+          // by the player's ofstats name, "[TAG] name" when the record has a tag
+          pct: pctOf(S.statsName(p.username, p.clanTag).toLowerCase()),
         };
       });
     const N = rows.length;

@@ -148,6 +148,16 @@ const as = (record, name, extra = {}) => OFR_RECAP.analyse(record, { me: name.to
   const v2 = await real("dc5VgbARGx");
   const hakon = as(v2, "HakonDenSkjetne", { myClan: "HS" });
   check("repeat conquests of one victim count once", hakon.chips.find((c) => c.key === "conq")?.value === 1 && !hakon.awards.some((a) => a.key === "executioner"), JSON.stringify(hakon.chips.find((c) => c.key === "conq")));
+  // ofstats keys a tagged player on "[TAG] name"; their bare name is another record there
+  const asked = new Set();
+  const byKey = (k) => {
+    asked.add(k);
+    return k === "[hs] hakondenskjetne" ? 7 : null;
+  };
+  const taggedMe = as(v2, "HakonDenSkjetne", { myClan: "HS", pctOf: byKey });
+  check("a tagged player's percentile is keyed \"[TAG] name\", never the bare name", asked.has("[hs] hakondenskjetne") && !asked.has("hakondenskjetne") && taggedMe.me?.pct === 7 && taggedMe.standings.find((r) => r.me)?.pct === 7, [...asked].join(", "));
+  const keys = v2.players.filter((p) => p.active).map((p) => (p.clanTag ? `[${p.clanTag}] ${p.username}` : p.username).toLowerCase());
+  check("every player is asked for under their ofstats name (bare when untagged)", keys.length === asked.size && keys.every((k) => asked.has(k)), keys.join(", "));
   // old format: no kill list, so the wording must not promise distinct players
   const old = as(await real("5S99ULQP"), "TeNa");
   check("old records say conquests, not players", /conquests?$/.test(old.chips.find((c) => c.key === "conq")?.label ?? ""), old.chips.find((c) => c.key === "conq")?.label);

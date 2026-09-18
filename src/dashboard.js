@@ -55,9 +55,31 @@
 
   const when = (g) => (g.date ? new Date(g.date).toLocaleDateString() : "");
 
+  // name: the ofstats name, "[TAG] name" for a player with a clan tag
   function profileUrl(name) {
     return `https://ofstats.io/player/${encodeURIComponent(name)}`;
   }
+
+  // Every name the dashboard is given, shows and looks up is a player's ofstats
+  // name: "[TAG] name" (one space) when they play with a clan tag, the bare name
+  // when they do not (OFR_SCORING.statsName). The two are different records on
+  // ofstats, so there is no falling back from one to the other. What someone
+  // types is looked up as typed; only the tag's form is put right: one space
+  // after it ("[LUX]TeNa" is not a name ofstats knows) and upper case, as
+  // OpenFront itself writes tags (sanitizeClanTag).
+  const TAGGED = /^\[([A-Za-z0-9]{1,5})\]\s*(.*)$/;
+  function tidyName(raw) {
+    const text = String(raw ?? "").trim();
+    const m = text.match(TAGGED);
+    return m && m[2].trim() ? S.statsName(m[2].trim(), m[1].toUpperCase()) : text;
+  }
+  const bareName = (name) => {
+    const m = String(name ?? "").match(TAGGED);
+    return m && m[2].trim() ? m[2].trim() : name;
+  };
+  const hasTag = (name) => bareName(name) !== name;
+  // Said under a miss for an untagged name: the usual reason for "no history".
+  const TAG_HINT = ' A player with a clan tag is found as "[TAG] name".';
 
   function gameUrl(id) {
     return `https://ofstats.io/game/${encodeURIComponent(id)}`;
@@ -153,6 +175,7 @@
 
   // ---- data ------------------------------------------------------------------
 
+  // username: an ofstats name, sent exactly as given (see tidyName)
   async function lookup(username) {
     const res = await chrome.runtime.sendMessage({
       type: "lookup",
@@ -350,10 +373,11 @@
     }
     const cmp = el("input", "ofr-dash-compare-input");
     cmp.type = "search";
-    cmp.placeholder = "Compare with…";
+    cmp.placeholder = "Compare with… [TAG] name";
+    cmp.title = "Another player's name, with their clan tag if they have one: [TAG] name";
     cmp.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter" || !cmp.value.trim()) return;
-      const other = cmp.value.trim();
+      const other = tidyName(cmp.value);
       cmp.disabled = true;
       let b = null;
       try {
@@ -368,7 +392,7 @@
       if (!b?.found) {
         sec = el("section", "ofr-dash-section compare");
         sec.append(el("h2", null, "Compare"));
-        sec.append(el("p", "ofr-dash-empty", `No history for "${other}".`));
+        sec.append(el("p", "ofr-dash-empty", `No history for "${other}".${hasTag(other) ? "" : TAG_HINT}`));
       } else {
         sec = compareSection(name, info, other, b);
         sec.classList.add("compare");
@@ -853,11 +877,16 @@
     return sec;
   }
 
-  // me: your own name when this is your own dashboard. In streamer mode your
-  // entry in the member list says "You" (text, hover and the Numbers table).
+  // me: your own ofstats name ("[TAG] name"). In streamer mode your entry in
+  // the member list says "You" (text, hover and the Numbers table). Members are
+  // listed by their bare name and opened by their full one, "[TAG] name", which
+  // is how ofstats lists them.
   async function clanSection(tag, { me = null, streamer = false } = {}) {
-    const isMe = (n) => !!me && typeof n === "string" && n.toLowerCase() === me.toLowerCase();
-    const shownMember = (n) => (streamer && isMe(n) ? "You" : n);
+    const memberKey = (m) => m.username || S.statsName(m.name, tag);
+    const isMe = (m) => sameName(memberKey(m), me);
+    // masking errs on the side of hiding: your bare name under any tag
+    const meBare = me ? bareName(me) : null;
+    const shownMember = (m) => (streamer && (isMe(m) || sameName(m.name, meBare)) ? "You" : m.name);
     const sec = el("section", "ofr-dash-section");
     sec.append(el("h2", null, `Clan [${tag}]`));
     sec.append(el("p", "ofr-dash-loading", "Loading clan…"));
@@ -905,13 +934,13 @@
       const list = el("div", "ofr-dash-members");
       for (const m of top) {
         const row = el("div", "ofr-dash-member");
-        row.title = `${shownMember(m.name)}: ${m.wins}/${m.games} won · ${m.winRate != null ? m.winRate.toFixed(1) : "?"}%`;
-        const name = el("a", null, shownMember(m.name));
+        row.title = `${shownMember(m)}: ${m.wins}/${m.games} won · ${m.winRate != null ? m.winRate.toFixed(1) : "?"}%`;
+        const name = el("a", null, shownMember(m));
         name.href = "#";
         name.addEventListener("click", (e) => {
           e.preventDefault();
           // keeps streamer mode; "self" only for your own entry
-          open(m.name, { ...currentOpts, clan: tag, self: isMe(m.name) });
+          open(memberKey(m), { ...currentOpts, clan: tag, self: isMe(m) });
         });
         row.append(name, C.meter({ frac: (m.wins ?? 0) / most, kind: "accent", label: `${m.wins} wins` }));
         list.append(row);
@@ -938,7 +967,7 @@
           box.append(
             table(
               ["Member", "Wins", "Games", "Win rate"],
-              [...clan.members].sort((a, b) => b.wins - a.wins).slice(0, 24).map((m) => ({ cells: [shownMember(m.name), m.wins, m.games, m.winRate != null ? `${m.winRate.toFixed(1)}%` : "?"] })),
+              [...clan.members].sort((a, b) => b.wins - a.wins).slice(0, 24).map((m) => ({ cells: [shownMember(m), m.wins, m.games, m.winRate != null ? `${m.winRate.toFixed(1)}%` : "?"] })),
             ),
           );
         }
@@ -1218,7 +1247,8 @@
     bar.append(el("span", "ofr-dash-unofficial", "unofficial"));
     const search = el("input", "ofr-dash-search");
     search.type = "search";
-    search.placeholder = "Look up any player…";
+    search.placeholder = "Player name, with [TAG] if they have one";
+    search.title = 'ofstats.io counts a player with a clan tag as "[TAG] name", separately from the bare name';
     bar.append(search);
     const close = el("button", "ofr-dash-close", "✕");
     close.type = "button";
@@ -1248,7 +1278,7 @@
     close.addEventListener("click", destroy);
     search.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" || !search.value.trim()) return;
-      const query = search.value.trim();
+      const query = tidyName(search.value); // "[LUX] TeNa" stays tagged
       // Someone else: what the dashboard was opened with (you, your session,
       // your clan) is not theirs.
       if (!sameName(query, currentName)) {
@@ -1264,13 +1294,17 @@
 
   const sameName = (a, b) => typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
 
-  // Your own name, so streamer mode can hide it wherever it would show (your
-  // page, your clan's member list): the dashboard's player when it is you, else
-  // the name OpenFront keeps for you (content.js falls back to the same one).
+  // Your own ofstats name ("[TAG] name" with a clan tag), so streamer mode can
+  // hide it wherever it would show (your page, your clan's member list): the
+  // dashboard's player when it is you, else content.js's answer (your lobby
+  // row, else the name and TAG field OpenFront keeps in localStorage).
   function ownName() {
     if (currentOpts.self && currentName) return currentName;
     try {
-      return localStorage.getItem("username");
+      if (typeof globalThis.__ofrSelfStatsName === "function") return globalThis.__ofrSelfStatsName();
+      const name = localStorage.getItem("username");
+      const tag = localStorage.getItem("clanTag");
+      return name ? S.statsName(name, /^[A-Za-z0-9]{1,5}$/.test(tag ?? "") ? tag : null) : null;
     } catch {
       return null;
     }
@@ -1288,9 +1322,15 @@
       body.replaceChildren(el("p", "ofr-dash-empty", `Lookup failed: ${err?.message ?? err}`));
       return;
     }
+    // A tagged name with no history stays that: the bare name is someone else's
+    // record on ofstats, so it is never shown in its place.
     if (!info?.found) {
       body.replaceChildren(
-        el("p", "ofr-dash-empty", hide ? "No public-game history for you on ofstats.io." : `No public-game history for "${name}" on ofstats.io.`),
+        el(
+          "p",
+          "ofr-dash-empty",
+          hide ? "No public-game history for you on ofstats.io." : `No public-game history for "${name}" on ofstats.io.${hasTag(name) ? "" : TAG_HINT}`,
+        ),
       );
       return;
     }
@@ -1321,6 +1361,8 @@
     }
   }
 
+  // name: the player's ofstats name ("[TAG] name" with a clan tag; content.js
+  // builds it); opts.clan: that tag, for the clan section.
   function open(name, opts = {}) {
     // Your own page, however it was reached (a clan member link, a lobby chip):
     // it is "self", so streamer mode hides the name and your session shows.
@@ -1351,6 +1393,7 @@
   // gauge, the win rate against an average player, the last ten results and
   // today's session. Re-rendered by content.js on each scan (the page is a Lit
   // component that re-renders); refetches at most once a minute per name.
+  // name: your ofstats name, "[TAG] name" when OpenFront's TAG field is set.
   async function homeWidget(host, name, opts = {}) {
     let card = document.querySelector(".ofr-home");
     const place = () => {

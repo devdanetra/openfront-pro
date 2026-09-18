@@ -53,7 +53,11 @@ sends a game action.
 ## Where the ranking comes from
 
 [ofstats.io](https://ofstats.io) aggregates every public OpenFront game by
-username, which is the only key the lobby gives us.
+display name, which is the only key the lobby gives us: `[TAG] name` (one
+space) for a player with a clan tag, the bare name otherwise. The two are
+separate records there - the bare `TeNa` is not `[LUX] TeNa`, and is often
+somebody else - so a tagged player is always looked up with the tag (badges,
+recap, dashboard, your own card) and never falls back to the bare name.
 
 `GET https://api.ofstats.io/players/<name>` returns per-map rows with `wins` and
 `expectedWins` — and expectedWins already accounts for how many players were in
@@ -618,7 +622,7 @@ click event's timestamp on the badge, but the badges still double up).
 The tooltip adds `Met 3 times recently — you won 1, they won 2` when your last
 60 games and theirs overlap. It costs no extra requests: the game ids come from
 the same player payload, and the viewer is identified from the lobby's own
-"current player" row (falling back to OpenFront's stored username).
+"current player" row (falling back to OpenFront's stored username and clan tag).
 
 Clicking any rank badge opens that player's stats in the page (the Pro
 dashboard); Shift+click toggles the watchlist instead.
