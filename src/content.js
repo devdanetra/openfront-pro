@@ -100,6 +100,11 @@ const SITE_LAYOUTS = new Set(["default", "wide", "sidebar", "focus"]);
 // iframe (it is an extension page, so it keeps full access to chrome.*). Opened
 // from the account dropdown, the home card and the dashboard.
 function openSettings() {
+  if (globalThis.__ofrLauncher) {
+    // no extension pages inside the game's window: settings open in your browser
+    chrome.runtime.sendMessage({ type: "openSettings" }).catch(() => {});
+    return;
+  }
   document.querySelector(".ofr-settings")?.remove();
   const overlay = document.createElement("div");
   overlay.className = "ofr-settings";
@@ -1594,6 +1599,7 @@ function markThreats() {
 // which is what web_accessible_resources allows. The probe guards itself, so
 // whichever arrives first wins and the second is a no-op.
 function loadPageProbe() {
+  if (globalThis.__ofrLauncher) return; // the launcher puts the probe in the page itself
   try {
     if (document.querySelector("script[data-ofr-probe]")) return;
     const script = document.createElement("script");

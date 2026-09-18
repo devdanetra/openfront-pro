@@ -224,16 +224,22 @@
     // properties on <html>, and those do inherit across the shadow boundary).
     const host = el("div", "ofr-chat-host");
     const shadow = host.attachShadow({ mode: "closed" });
-    const sheet = document.createElement("link");
-    sheet.rel = "stylesheet";
-    try {
-      sheet.href = chrome.runtime.getURL("src/content.css");
-    } catch {
-      // extension reloaded under us; the fresh copy builds its own
+    let sheet = document.createElement("link");
+    if (typeof globalThis.__ofrCss === "string") {
+      // companion launcher: the stylesheet text is handed over directly
+      sheet = document.createElement("style");
+      sheet.textContent = globalThis.__ofrCss;
+    } else {
+      sheet.rel = "stylesheet";
+      try {
+        sheet.href = chrome.runtime.getURL("src/content.css");
+      } catch {
+        // extension reloaded under us; the fresh copy builds its own
+      }
+      host.style.visibility = "hidden"; // no flash of unstyled panel
+      sheet.addEventListener("load", () => (host.style.visibility = ""));
+      sheet.addEventListener("error", () => (host.style.visibility = ""));
     }
-    host.style.visibility = "hidden"; // no flash of unstyled panel
-    sheet.addEventListener("load", () => (host.style.visibility = ""));
-    sheet.addEventListener("error", () => (host.style.visibility = ""));
     const root = el("div", "ofr-chat");
     shadow.append(sheet, root);
     const tab = el("button", "ofr-chat-tab");

@@ -17,3 +17,6 @@ _*.css
 Thumbs.db
 .vscode/
 .idea/
+
+# read-only notes taken from the Steam build while writing the launcher
+.steam-peek/

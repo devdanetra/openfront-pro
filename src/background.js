@@ -729,6 +729,10 @@ function onMessage(msg, _sender, sendResponse) {
     });
     return false;
   }
+  if (msg?.type === "openSettings") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("src/popup.html") });
+    return false;
+  }
   if (msg?.type === "openWelcome") {
     chrome.tabs.create({ url: chrome.runtime.getURL("src/welcome.html") });
     return false;

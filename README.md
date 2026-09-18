@@ -526,6 +526,9 @@ tools/test-chat.mjs        chat: event rules, text hygiene, --live relay round t
 tools/probe-relays.mjs     which public relays deliver ephemeral events
 tools/build-vendor.mjs     rebuilds src/vendor/nostr-crypto.js (checked against BIP-340)
 tools/make-store-images.py Chrome Web Store screenshots and tiles from .shots/
+tools/make-icons.py        draws the icon set (icons/, store/)
+tools/asar-peek.mjs        read-only look inside an Electron app.asar
+launcher/                  companion launcher for the Steam build
 store/                     listing text, privacy-tab answers, submission checklist
 tools/cdp-*.mjs     dev: drive a debug Chrome (screenshots, live checks)
 test/               fixture page reproducing the lobby markup
@@ -534,6 +537,12 @@ test/               fixture page reproducing the lobby markup
 To run the fixture: `python -m http.server 8931` from this folder, then open
 `http://localhost:8931/test/index.html`. It stubs the `chrome` API; live calls
 from it fail with CORS by design.
+
+## Steam build
+
+The Steam (Electron) version cannot load extensions. `launcher/` runs this same
+code against it from outside, without touching the game's files - experimental,
+and with caveats worth reading first: [launcher/README.md](launcher/README.md).
 
 ## License
 
