@@ -122,7 +122,7 @@
       const g = svgEl("g", { class: "ofr-chart-marker", "data-kind": m.kind ?? "" });
       const x = sx(m.x);
       if (m.y === undefined) g.append(svgEl("line", { x1: x, x2: x, y1: y0, y2: y1 }));
-      else g.append(svgEl("circle", { cx: x, cy: sy(m.y), r: 3.5 }));
+      else g.append(svgEl("circle", { cx: x, cy: sy(m.y), r: 4.5 }));
       if (m.label) {
         const right = x > (x0 + x1) / 2;
         g.append(
@@ -173,7 +173,8 @@
   }
 
   // ---- compare: rows of grouped horizontal bars (you / winner / lobby) ------------
-  // rows: [{ label, note, bars: [{ value, text, kind }] }]; each row scales to its own max
+  // rows: [{ label, note, title, bars: [{ value, text, kind }] }]; each row scales to its own max
+  // legend: [{ kind, label, title }] (title: the full wording, on hover)
   function compare({ rows, legend = [] }) {
     const wrap = el("div", "ofr-cmp");
     if (legend.length) {
@@ -181,6 +182,7 @@
       for (const item of legend) {
         const key = el("span", "ofr-chart-key", item.label);
         key.dataset.kind = item.kind;
+        if (item.title) key.title = item.title;
         lg.append(key);
       }
       wrap.append(lg);
@@ -188,6 +190,7 @@
     for (const row of rows) {
       const top = Math.max(1, ...row.bars.map((b) => num(b.value)));
       const line = el("div", "ofr-cmp-row");
+      if (row.title) line.title = row.title;
       const head = el("div", "ofr-cmp-head");
       head.append(el("span", "ofr-cmp-label", row.label));
       if (row.note) head.append(el("span", "ofr-cmp-note", row.note));
@@ -208,7 +211,10 @@
   }
 
   // ---- stacked: one bar split into labelled parts, with a legend ----------------------
-  // parts: [{ label, value, text, slot }]  (slot 1..6 picks a token colour)
+  // parts: [{ label, value, text, slot }]  (slot 1..7 picks a token colour, content.css)
+  // The bar keeps the given order; the legend lists the largest part first.
+  // A share that would round to 0% reads "<1%", so a sliver never says nothing.
+  const shareText = (share) => (share > 0 && share < 0.5 ? "<1%" : `${share.toFixed(0)}%`);
   function stacked({ parts }) {
     const live = parts.filter((p) => num(p.value) > 0);
     const total = live.reduce((a, p) => a + num(p.value), 0);
@@ -216,17 +222,20 @@
     if (total <= 0) return wrap;
     const bar = el("div", "ofr-stack-bar");
     const legend = el("div", "ofr-chart-legend");
+    const keys = [];
     for (const p of live) {
       const share = (100 * num(p.value)) / total;
       const seg = el("span", "ofr-stack-seg");
       seg.dataset.slot = String(p.slot);
       seg.style.width = `${share}%`;
-      seg.title = `${p.label}: ${p.text ?? p.value} (${share.toFixed(0)}%)`;
+      seg.title = `${p.label}: ${p.text ?? p.value} (${shareText(share)})`;
       bar.append(seg);
-      const key = el("span", "ofr-chart-key", `${p.label} ${share.toFixed(0)}%`);
+      const key = el("span", "ofr-chart-key", `${p.label} ${shareText(share)}`);
       key.dataset.slot = String(p.slot);
-      legend.append(key);
+      keys.push([share, key]);
     }
+    keys.sort((a, b) => b[0] - a[0]); // stable: equal shares keep their order
+    legend.append(...keys.map(([, key]) => key));
     wrap.append(bar, legend);
     return wrap;
   }
@@ -374,6 +383,39 @@
       ["circle", { cx: 9, cy: 8, r: 3.5 }],
       ["path", { d: "M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" }],
       ["path", { d: "M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.6c1.9.8 3 2.8 3 5.4" }],
+    ],
+    gear: [
+      ["circle", { cx: 12, cy: 12, r: 3 }],
+      [
+        "path",
+        {
+          d: "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
+        },
+      ],
+    ],
+    search: [["circle", { cx: 11, cy: 11, r: 7 }], ["path", { d: "M20 20l-3.5-3.5" }]],
+    skull: [
+      ["path", { d: "M12 3a7 7 0 0 0-7 7c0 2.4 1.2 4.1 3 5.2V18a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.8c1.8-1.1 3-2.8 3-5.2a7 7 0 0 0-7-7z" }],
+      ["circle", { class: "fill", cx: 9.3, cy: 10.5, r: 1.6 }],
+      ["circle", { class: "fill", cx: 14.7, cy: 10.5, r: 1.6 }],
+      ["path", { d: "M10.5 19v2M13.5 19v2" }],
+    ],
+    trend: [["path", { d: "M3 17l6-6 4 4 8-8" }], ["path", { d: "M15 7h6v6" }]],
+    rise: [["path", { d: "M6 12l6-6 6 6M6 19l6-6 6 6" }]],
+    star: [["path", { d: "M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" }]],
+    bolt: [["path", { d: "M13 2L4 14h7l-1 8 9-12h-7z" }]],
+    city: [["path", { d: "M3 21h18M5 21V10l5-3v14M10 21V4h9v17" }], ["path", { d: "M13 8h3M13 12h3M13 16h3" }]],
+    ship: [["path", { d: "M3 15l2.5 5h13l2.5-5z" }], ["path", { d: "M12 3v12" }], ["path", { d: "M12 4.5l6 7.5h-6" }]],
+    hammer: [["path", { d: "M14.5 3.5l6 6-3 3-6-6z" }], ["path", { d: "M12.5 8.5l-8.3 8.3a2.1 2.1 0 0 0 3 3l8.3-8.3" }]],
+    calendar: [
+      ["path", { d: "M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" }],
+      ["path", { d: "M3 10h18M8 3v4M16 3v4" }],
+    ],
+    info: [["circle", { cx: 12, cy: 12, r: 9 }], ["path", { d: "M12 11v5.5" }], ["circle", { class: "fill", cx: 12, cy: 7.6, r: 1.3 }]],
+    target: [["circle", { cx: 12, cy: 12, r: 9 }], ["circle", { cx: 12, cy: 12, r: 5 }], ["circle", { class: "fill", cx: 12, cy: 12, r: 1.6 }]],
+    train: [
+      ["path", { d: "M8 3h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z" }],
+      ["path", { d: "M5 10h14M8.5 21l2-4M15.5 21l-2-4" }],
     ],
   };
   function icon(name, cls = "") {

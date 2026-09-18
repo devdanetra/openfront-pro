@@ -16,6 +16,9 @@ const OFSTATS_API = "https://api.ofstats.io";
 
 const HIT_TTL_MS = 10 * 60 * 1000;
 const MISS_TTL_MS = 30 * 60 * 1000;
+// A failed request (network down, ofstats erroring) is not an answer: asked
+// again soon, so a badge or card does not keep saying "offline" for half an hour.
+const ERROR_TTL_MS = 60 * 1000;
 const MAX_CONCURRENT = 6;
 // ofs6: lookups became "[TAG] name" for tagged players; ofs5 held bare-name
 // entries (and clan members without their full name), so none is served again.
@@ -132,7 +135,7 @@ async function cacheGet(key) {
 }
 
 async function cacheSet(key, value) {
-  const ttl = value && value.found ? HIT_TTL_MS : MISS_TTL_MS;
+  const ttl = value?.found ? HIT_TTL_MS : value?.reason === "error" ? ERROR_TTL_MS : MISS_TTL_MS;
   const entry = { value, expiresAt: Date.now() + ttl };
   memoryCache.set(key, entry);
   await chrome.storage.local.set({ [key]: entry });

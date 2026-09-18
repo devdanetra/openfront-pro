@@ -80,7 +80,7 @@ place(im, shot("recap-ffa-win-card.png"), (32 + 2 * third + 48, BAR + 24, W - 32
 im.save(os.path.join(OUT, "screenshot-3.png"))
 
 # 4. themes
-im, _ = canvas("One theme for everything", "Classic, Neon, Tactical, Pastel, Mono, High contrast - the extension and, if you like, the site itself")
+im, _ = canvas("One theme for everything", "Nine themes, from Classic and Neon to Ember and Daylight - the extension and, if you like, the site itself")
 cw, ch = (W - 64 - 24) // 2, (H - BAR - 48 - 24) // 2
 for i, name in enumerate(["theme-neon-home.png", "theme-pastel-home.png", "theme-tactical-home.png", "theme-contrast-home.png"]):
     cx = 32 + (i % 2) * (cw + 24)

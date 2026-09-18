@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OpenFront Pro",
-  "version": "5.8.0",
+  "version": "5.9.0",
   "description": "Unofficial. Player rankings, form, map preview and scouting for OpenFront lobbies. Not affiliated with OpenFront.",
   "permissions": [
     "notifications",

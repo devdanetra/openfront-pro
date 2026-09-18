@@ -352,8 +352,8 @@
           }
         }
       }
-      if (killer) lines.push({ kind: "killer", text: `Eliminated by ${nameOf(killer)}${killer.pct != null ? ` (${topText(killer.pct)})` : ""}` });
-      else if (mine.killedBy === "") lines.push({ kind: "killer", text: "Eliminated by a bot or a nation" });
+      if (killer) lines.push({ kind: "killer", text: `Eliminated by ${nameOf(killer)}${killer.pct != null ? ` (${topText(killer.pct)})` : ""}`, who: nameOf(killer), pct: killer.pct });
+      else if (mine.killedBy === "") lines.push({ kind: "killer", text: "Eliminated by a bot or a nation", short: "bot or nation" });
     }
     let seed = null;
     // (streamer mode hides the viewer's rank, and a seed is a rank)
@@ -366,12 +366,15 @@
         text:
           `Seeded #${s} of ${rankedRows.length} by world rank, finished #${f} among them` +
           (seed.delta > 0 ? ` (+${seed.delta})` : seed.delta < 0 ? ` (${seed.delta})` : ""),
+        short: `Seed #${s} → #${f}`,
+        delta: seed.delta,
       });
       const beaten = rankedRows.filter((q) => q.pct < mine.pct && better(mine, q));
       if (beaten.length) {
         lines.push({
           kind: "giant",
           text: `Outlasted ${plural(beaten.length, "player")} ranked above you: ${beaten.slice(0, 3).map(nameOf).join(", ")}${beaten.length > 3 ? "..." : ""}`,
+          short: `${beaten.length} higher-ranked outlasted`,
         });
       }
     }
@@ -380,7 +383,7 @@
       const sum = team.reduce((a, p) => a + p.stats.attacksSent, 0);
       // Worth a line when you pulled more than your share of the listed team.
       if (team.length >= 2 && sum > 0 && mine.stats.attacksSent / sum >= Math.max(0.25, 1.5 / team.length)) {
-        lines.push({ kind: "carry", text: `You sent ${Math.round((100 * mine.stats.attacksSent) / sum)}% of ${winnerLabel}'s troops (${team.length} listed members)` });
+        lines.push({ kind: "carry", text: `You sent ${Math.round((100 * mine.stats.attacksSent) / sum)}% of ${winnerLabel}'s troops (${team.length} listed members)`, short: `${Math.round((100 * mine.stats.attacksSent) / sum)}% of team troops` });
       }
     }
     if (enoughRanked && !isTeam && winners[0]) {
@@ -389,16 +392,16 @@
       const typicalPct = median(rankedRows.map((p) => p.pct));
       // my own rank stays out of it in streamer mode
       const rankNote = (p) => (p === mine && ctx.streamer ? "" : ` (${topText(p.pct)})`);
-      if (favourite === w && N > 2) lines.push({ kind: "favourite", text: `The favourite delivered: ${nameOf(w)}${rankNote(w)}` });
-      else if (w.pct != null && w.pct > 50 && w.pct > typicalPct) lines.push({ kind: "upset", text: `Upset: ${nameOf(w)}${rankNote(w)} won it` });
+      if (favourite === w && N > 2) lines.push({ kind: "favourite", text: `The favourite delivered: ${nameOf(w)}${rankNote(w)}`, short: `Favourite won: ${nameOf(w)}` });
+      else if (w.pct != null && w.pct > 50 && w.pct > typicalPct) lines.push({ kind: "upset", text: `Upset: ${nameOf(w)}${rankNote(w)} won it`, short: `Upset: ${nameOf(w)}` });
       else if (favourite && favourite !== mine) {
-        lines.push({ kind: "paper", text: `Strongest on paper: ${nameOf(favourite)} (${topText(favourite.pct)}) finished ${placeText(favourite, standing)}` });
+        lines.push({ kind: "paper", text: `Strongest on paper: ${nameOf(favourite)} (${topText(favourite.pct)}) finished ${placeText(favourite, standing)}`, short: `→ ${placeText(favourite, standing)}`, pct: favourite.pct, who: nameOf(favourite) });
       }
     }
     if (rankedRows.length >= Math.max(5, Math.ceil(N * 0.3))) {
       const typical = median(rankedRows.map((p) => p.pct));
       const label = typical <= 30 ? "strong" : typical <= 55 ? "typical" : "soft";
-      lines.push({ kind: "lobby", text: `Lobby: ${label} - median ${topText(typical)}, ${rankedRows.length} of ${N} ranked` });
+      lines.push({ kind: "lobby", text: `Lobby: ${label} - median ${topText(typical)}, ${rankedRows.length} of ${N} ranked`, short: `${label[0].toUpperCase()}${label.slice(1)} lobby`, pct: typical });
     }
     const myClan = (mine?.clanTag ?? "").toUpperCase();
     if (mine && myClan && !ctx.streamer) {
@@ -407,6 +410,7 @@
         lines.push({
           kind: "clan",
           text: `[${myClan}] x${mates.length + 1} in this game: ${mates.slice(0, 3).map((p) => `${p.username} ${p.winner ? "won" : placeText(p, standing)}`).join(", ")}${mates.length > 3 ? "..." : ""}`,
+          short: `[${myClan}] ×${mates.length + 1}`,
         });
       }
     }
@@ -440,7 +444,8 @@
     // middle bar is the best anyone else managed on each number.
     const bestOfRest = mine?.winner && !is1v1 && N > 2;
     if (bestOfRest) refLabel = "best of the rest";
-    const compareMetrics = [METRICS[2], METRICS[1], { key: "conqAll", label: "conquests", get: (s) => s.conquests.total }, METRICS[7]];
+    // "players conquered" everywhere: the same number as the chip and the standings
+    const compareMetrics = [METRICS[2], METRICS[1], { ...METRICS[0], label: "players conquered" }, METRICS[7]];
     const compare = {
       title: subjectTitle,
       legend: [
@@ -479,8 +484,9 @@
         { label: "workers", value: g.work, slot: 1 },
         { label: "conquest", value: g.war, slot: 2 },
         { label: "trade", value: g.trade, slot: 3 },
-        { label: "trains", value: g.trainSelf + g.trainOther, slot: 4 },
-        { label: "piracy", value: g.steal, slot: 6 },
+        // not 4 or 6: --ofr-strong equals the accent (the "you" colour) in some themes
+        { label: "trains", value: g.trainSelf + g.trainOther, slot: 7 },
+        { label: "piracy", value: g.steal, slot: 5 },
       ].map((p) => ({ ...p, text: fmtBig(p.value) })),
     };
 
@@ -563,9 +569,52 @@
     return b;
   };
 
+  // A rank badge with the text as given ("Top 2.4%"), coloured by its band.
+  const pctBadge = (text, pct) => {
+    const b = el("span", "ofr-badge", text);
+    b.dataset.ofrKind = "percentile";
+    b.dataset.ofrBand = band(pct);
+    return b;
+  };
+  // Words on screen are cut to a glance; the full sentence stays in the hover
+  // title and, for screen readers, in a visually hidden copy (the visible short
+  // form is aria-hidden so it is not read twice).
+  const srText = (text) => el("span", "ofr-sr", text);
+  function glance(node, full, ...visible) {
+    node.title = full;
+    const vis = el("span", "ofr-glance");
+    vis.setAttribute("aria-hidden", "true");
+    vis.append(...visible);
+    node.append(vis, srText(full));
+    return node;
+  }
+  // A small "i": the explanation that used to be a sentence under a chart.
+  function infoTip(text) {
+    const C = globalThis.OFR_CHARTS;
+    const tip = el("span", "ofr-info");
+    tip.title = text;
+    tip.tabIndex = 0;
+    tip.setAttribute("role", "note");
+    tip.setAttribute("aria-label", text);
+    tip.append(C?.icon ? C.icon("info") : document.createTextNode("i"));
+    return tip;
+  }
+
+  // The icon on each summary chip (charts.js ICONS), by metric key.
+  const CHIP_ICON = { conq: "flag", troops: "swords", gold: "coins", cities: "city", nukes: "nuke", pirate: "ship", sam: "shield", built: "hammer" };
+  // ...on each story line, by kind
+  const LINE_ICON = { killer: "skull", seed: "trend", giant: "rise", carry: "swords", favourite: "star", upset: "bolt", paper: "star", lobby: "users", clan: "flag" };
+  // ...and on each award, by key
+  const AWARD_ICON = {
+    warlord: "swords", executioner: "flag", tycoon: "coins", merchant: "ship", pirate: "skull", rail: "train", atomic: "nuke", doomsday: "nuke",
+    dome: "shield", admiral: "ship", snatcher: "city", architect: "hammer", turtle: "shield", wanted: "target", backstab: "bolt", last: "clock", sweep: "trophy",
+  };
+
   function createWidget({ icon = () => "", onDashboard = null, onClose = null, onToggle = null, avoidRect = null, startMin = false, gameId = null, streamer = false } = {}) {
     const C = globalThis.OFR_CHARTS;
-    const root = el("div", "ofr-recap");
+    const root = el("div", "ofr-recap ofr-float");
+    root.setAttribute("role", "region");
+    root.setAttribute("aria-label", "Game recap");
     let model = null;
     let progress = [];
     let tab = "summary";
@@ -574,18 +623,32 @@
     const head = el("div", "ofr-recap-head");
     const title = el("span", "ofr-recap-title", "Game recap");
     const metaLine = el("span", "ofr-recap-meta");
-    const min = el("button", null, "–");
+    const min = el("button", "ofr-btn ofr-btn-icon", "−");
     min.type = "button";
-    min.title = "Minimise";
-    const close = el("button", null, "✕");
+    const close = el("button", "ofr-btn ofr-btn-icon", "✕");
     close.type = "button";
-    close.title = "Close";
+    close.title = "Close recap";
+    close.setAttribute("aria-label", "Close recap");
     const headText = el("div", "ofr-recap-headtext");
     headText.append(title, metaLine);
     head.append(headText, min, close);
 
     const hero = el("div", "ofr-recap-hero");
-    const tabs = el("div", "ofr-recap-tabs");
+    const tabs = el("div", "ofr-recap-tabs ofr-tabs");
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "Recap sections");
+    // Left / Right move between tabs (and select), like any tab strip.
+    tabs.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const list = [...tabs.children];
+      const at = list.indexOf(e.target);
+      if (at < 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const next = list[(at + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length];
+      next.focus();
+      next.click();
+    });
     const body = el("div", "ofr-recap-body");
     const foot = el("div", "ofr-recap-foot");
     const actions = el("div", "ofr-recap-actions");
@@ -604,8 +667,10 @@
       // Folded, the title bar is all there is: let it carry the headline.
       const r = model?.state === "ok" ? model.result : null;
       title.textContent = on && r ? `${r.title}${r.of ? ` ${r.of}` : ""} · Recap` : "Game recap";
-      min.textContent = on ? "▴" : "–";
-      min.title = on ? "Expand" : "Minimise";
+      min.textContent = on ? "▴" : "−";
+      min.title = on ? "Expand recap" : "Minimise recap";
+      min.setAttribute("aria-label", min.title);
+      min.setAttribute("aria-expanded", String(!on));
     };
     min.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -640,16 +705,25 @@
       root.remove();
     }
 
-    const button = (label, tip, handler) => {
-      const b = el("button", null, label);
+    const button = (label, tip, handler, className = "ofr-btn") => {
+      const b = el("button", className, label);
       b.type = "button";
       if (tip) b.title = tip;
       b.addEventListener("click", () => handler(b));
       return b;
     };
-    const flash = (b, text, restore, ms = 2500) => {
+    // The transient result of an action on its own button ("Copied ✓", "Failed").
+    // state: "ok" | "error"; detail goes in the tooltip, never in the label.
+    const flash = (b, text, restore, ms = 2500, state = "ok", detail = null) => {
+      const tip = b.title;
       b.textContent = text;
-      setTimeout(() => (b.textContent = restore), ms);
+      b.dataset.state = state;
+      if (detail) b.title = detail;
+      setTimeout(() => {
+        b.textContent = restore;
+        delete b.dataset.state;
+        b.title = tip;
+      }, ms);
     };
 
     function renderHero() {
@@ -667,45 +741,92 @@
         if (!model.streamer) who.append(badge(model.me.pct));
         top.append(who);
       }
-      hero.append(top, el("div", "ofr-recap-kicker", r.kicker));
+      // one short line under the result: the part before " - " (the rest, and a
+      // sentence like "never spawned...", in the hover title)
+      const kicker = el("div", "ofr-recap-kicker", r.kind === "sat" ? "never spawned" : String(r.kicker ?? "").split(" - ")[0]);
+      if (kicker.textContent !== r.kicker) kicker.title = r.kicker;
+      hero.append(top, kicker);
+    }
+
+    // The same metric chips, as one compact row: icon, value and lobby rank;
+    // what the number is sits in the hover title (and for screen readers).
+    function chipRow() {
+      const grid = el("div", "ofr-recap-chips ofr-recap-chiprow");
+      for (const c of model.chips) {
+        const chip = el("div", "ofr-recap-chip ofr-card");
+        if (c.rank <= 3) chip.dataset.top = "true";
+        // the value alone gets the full width (four chips share one row); the
+        // metric's icon leads the rank line under it
+        const value = el("span", "ofr-recap-chip-value", c.text);
+        const rank = el("span", "ofr-recap-chip-rank");
+        if (C?.icon && CHIP_ICON[c.key]) rank.append(C.icon(CHIP_ICON[c.key]));
+        rank.append(document.createTextNode(`#${c.rank}/${c.of}`));
+        if (!c.ranked) rank.dataset.unranked = "true";
+        glance(chip, `${c.text} ${c.label}: #${c.rank} of ${c.of} in the lobby`, value, rank);
+        grid.append(chip);
+      }
+      return grid;
+    }
+
+    // The story lines as icon rows: who / a short phrase / a rank badge.
+    function factList() {
+      const list = el("ul", "ofr-recap-facts");
+      for (const l of model.lines) {
+        const li = el("li");
+        li.dataset.kind = l.kind;
+        const parts = [];
+        if (C?.icon) parts.push(C.icon(LINE_ICON[l.kind] ?? "info"));
+        if (l.who) parts.push(el("span", "ofr-recap-fact-who", l.who));
+        if (l.who && l.pct != null) parts.push(badge(l.pct));
+        if (l.short) parts.push(el("span", "ofr-recap-fact-text", l.short));
+        if (!l.who && l.pct != null) parts.push(badge(l.pct));
+        if (l.delta) {
+          const d = el("span", "ofr-recap-delta", l.delta > 0 ? `+${l.delta}` : String(l.delta));
+          d.dataset.dir = l.delta > 0 ? "up" : "down";
+          parts.push(d);
+        }
+        if (!l.who && !l.short) parts.push(el("span", "ofr-recap-fact-text", l.text));
+        list.append(glance(li, l.text, ...parts));
+      }
+      return list;
     }
 
     function summaryPane() {
       const pane = el("div", "ofr-recap-pane");
-      if (model.chips.length) {
-        const grid = el("div", "ofr-recap-chips");
-        for (const c of model.chips) {
-          const chip = el("div", "ofr-recap-chip");
-          if (c.rank <= 3) chip.dataset.top = "true";
-          chip.append(el("span", "ofr-recap-chip-value", c.text), el("span", "ofr-recap-chip-label", c.label));
-          if (c.ranked) chip.append(el("span", "ofr-recap-chip-rank", `#${c.rank} of ${c.of}`));
-          grid.append(chip);
-        }
-        pane.append(grid);
-      }
+      if (model.chips.length) pane.append(chipRow());
       if (model.charts.survival.show && C) pane.append(survivalChart(118));
       else if (model.is1v1 && C && model.charts.compare.rows.length) {
         const box = el("div", "ofr-recap-chart");
-        box.append(el("h4", null, "Tale of the tape"), C.compare(model.charts.compare));
+        box.append(el("h4", null, "Tale of the tape"), compareChart(model.charts.compare));
         pane.append(box);
       }
-      if (model.lines.length) {
-        const list = el("ul", "ofr-recap-lines");
-        for (const l of model.lines) list.append(el("li", null, l.text));
-        pane.append(list);
-      }
-      const top = model.awards.slice(0, 3);
+      if (model.lines.length) pane.append(factList());
+      const top = model.awards.slice(0, 4);
       if (top.length) {
-        pane.append(el("h4", null, "Awards"));
-        pane.append(awardList(top));
+        const head = el("h4", "ofr-recap-subhead");
+        head.append(document.createTextNode("Awards"));
         if (model.awards.length > top.length) {
-          const more = button(`All ${model.awards.length} awards`, null, () => show("awards"));
-          more.className = "ofr-recap-more";
-          pane.append(more);
+          const more = button(`All ${model.awards.length}`, `All ${model.awards.length} awards`, () => show("awards"), "ofr-btn ofr-btn-sm ofr-recap-more");
+          head.append(more);
         }
+        pane.append(head, awardList(top));
       }
-      if (!pane.childElementCount) pane.append(el("p", "ofr-recap-note", "Nothing else was recorded for this game."));
+      if (!pane.childElementCount) pane.append(el("p", "ofr-recap-note", "Nothing recorded"));
       return pane;
+    }
+
+    // C.compare with short legend keys and "#1" notes; the full wording on hover.
+    function compareChart(cmp) {
+      const shortKey = (k) => {
+        if (k.kind === "lobby") return "median";
+        if (k.label === "best of the rest") return "best other";
+        const m = /^(.*) \((?:winner|their top player)\)$/.exec(k.label ?? "");
+        return m ? m[1] : k.label;
+      };
+      return C.compare({
+        legend: cmp.legend.map((k) => ({ ...k, label: shortKey(k), title: k.label })),
+        rows: cmp.rows.map((r) => ({ ...r, note: String(r.note ?? "").replace(/ of \d+$/, ""), title: `${r.label}: ${r.note} in the lobby` })),
+      });
     }
 
     function survivalChart(height) {
@@ -737,14 +858,14 @@
     function graphsPane() {
       const pane = el("div", "ofr-recap-pane");
       if (!C) {
-        pane.append(el("p", "ofr-recap-note", "Charts are unavailable."));
+        pane.append(el("p", "ofr-recap-note", "No charts"));
         return pane;
       }
       const ch = model.charts;
       if (ch.compare.rows.length) {
         const box = el("div", "ofr-recap-chart");
         box.append(el("h4", null, ch.compare.title));
-        box.append(C.compare(ch.compare));
+        box.append(compareChart(ch.compare));
         pane.append(box);
       }
       if (ch.gold.total > 0) {
@@ -762,26 +883,28 @@
           labels: { elite: "top 5%", strong: "top 15%", good: "top 35%", average: "top 60%", low: "rest", unranked: "no rank" },
         }),
       );
-      box.append(
-        el(
-          "p",
-          "ofr-recap-note",
-          ch.field.typical != null
-            ? `${ch.field.ranked} of ${model.meta.players} players have a world rank; the typical one is ${topText(ch.field.typical)}.`
-            : "Nobody in this lobby has a world rank yet.",
-        ),
-      );
+      const fieldText =
+        ch.field.typical != null
+          ? `${ch.field.ranked} of ${model.meta.players} players have a world rank; the typical one is ${topText(ch.field.typical)}.`
+          : "Nobody in this lobby has a world rank yet.";
+      box.title = fieldText;
+      const fieldNote = el("p", "ofr-recap-note", ch.field.typical != null ? `${ch.field.ranked}/${model.meta.players} ranked · median ${topText(ch.field.typical)}` : "Nobody ranked");
+      fieldNote.title = fieldText;
+      box.append(fieldNote);
       pane.append(box);
       return pane;
     }
 
+    // Award tiles: icon, title and holder; what they did is in the hover title.
     function awardList(list) {
-      const ul = el("ul", "ofr-recap-awards");
+      const ul = el("ul", "ofr-recap-awardgrid");
       for (const a of list) {
-        const li = el("li");
+        const li = el("li", "ofr-recap-award");
         if (a.mine) li.dataset.mine = "true";
-        li.append(el("span", "ofr-recap-award-title", a.title), el("span", "ofr-recap-award-who", a.who), el("span", "ofr-recap-award-text", a.text));
-        ul.append(li);
+        const words = el("span", "ofr-recap-award-words");
+        words.append(el("span", "ofr-recap-award-title", a.title), el("span", "ofr-recap-award-who", a.who));
+        const parts = C?.icon ? [C.icon(AWARD_ICON[a.key] ?? "trophy"), words] : [words];
+        ul.append(glance(li, `${a.title}: ${a.who} - ${a.text}`, ...parts));
       }
       return ul;
     }
@@ -789,7 +912,12 @@
     function awardsPane() {
       const pane = el("div", "ofr-recap-pane");
       if (model.awards.length) pane.append(awardList(model.awards));
-      else pane.append(el("p", "ofr-recap-note", model.meta.players < 4 ? "Awards need at least four players." : "Nobody stood out enough for an award this game."));
+      else {
+        const few = model.meta.players < 4;
+        const note = el("p", "ofr-recap-note", few ? "Needs 4+ players" : "No standouts");
+        note.title = few ? "Awards need at least four players." : "Nobody stood out enough for an award this game.";
+        pane.append(note);
+      }
       return pane;
     }
 
@@ -797,7 +925,22 @@
       const pane = el("div", "ofr-recap-pane");
       const table = el("table", "ofr-recap-table");
       const headRow = el("tr");
-      for (const h of ["#", "Player", model.is1v1 ? "" : "Out", "Conq.", "Gold"]) headRow.append(el("th", null, h));
+      const notes = [];
+      if (model.standings.some((r) => r.place.startsWith("="))) notes.push("= : still alive at the end; the record does not say who held more land.");
+      if (model.isTeam) notes.push("W: on the winning team's list. Other players' teams are not in the record.");
+      if (model.meta.absent) notes.push(`${plural(model.meta.absent, "player")} joined but never spawned and are left out.`);
+      // [text, icon, full name]: the number columns are headed by an icon
+      const heads = [["#"], ["Player"], model.is1v1 ? [""] : ["Out", "clock", "Eliminated at (or alive at the end)"], ["Conq.", "flag", "Players conquered"], ["Gold", "coins", "Gold earned"]];
+      for (const [h, iconName, full] of heads) {
+        const th = el("th");
+        if (full) th.title = full;
+        if (iconName && C?.icon) {
+          th.append(C.icon(iconName));
+          th.setAttribute("aria-label", full);
+        } else th.textContent = h;
+        if (h === "#" && notes.length) th.append(infoTip(notes.join("\n")));
+        headRow.append(th);
+      }
       table.append(headRow);
       for (const row of model.standings) {
         const tr = el("tr");
@@ -810,11 +953,6 @@
         table.append(tr);
       }
       pane.append(table);
-      const notes = [];
-      if (model.standings.some((r) => r.place.startsWith("="))) notes.push("= : still alive at the end; the record does not say who held more land.");
-      if (model.isTeam) notes.push("W: on the winning team's list. Other players' teams are not in the record.");
-      if (model.meta.absent) notes.push(`${plural(model.meta.absent, "player")} joined but never spawned and are left out.`);
-      for (const n of notes) pane.append(el("p", "ofr-recap-note", n));
       return pane;
     }
 
@@ -836,7 +974,10 @@
       lapseStreamerShown = lapseStreamer();
       lapsePlayer = L.player({ streamer: lapseStreamerShown, gameId: lapseId() });
       pane.append(lapsePlayer.canvas);
-      pane.append(el("p", "ofr-recap-note", `${L.count(lapseId())} frames over ${mmss(L.seconds())} of play. Made in your browser; nothing is uploaded.`));
+      const facts = el("p", "ofr-recap-note ofr-recap-noteline", `${L.count(lapseId())} frames · ${mmss(L.seconds())}`);
+      facts.title = `${L.count(lapseId())} frames over ${mmss(L.seconds())} of play`;
+      facts.append(infoTip("Made in your browser; nothing is uploaded."));
+      pane.append(facts);
       const row = el("div", "ofr-recap-actions ofr-lapse-actions");
       const status = el("p", "ofr-recap-note", lapseStatus);
       row.dataset.busy = String(!!lapseJob);
@@ -846,8 +987,8 @@
         for (const other of body.querySelectorAll(".ofr-lapse-status")) other.textContent = text; // a rebuilt pane
       };
       status.classList.add("ofr-lapse-status");
-      const run = (label, ext, make) =>
-        button(label, null, async () => {
+      const run = (label, ext, make, tip) =>
+        button(label, tip, async () => {
           if (lapseJob) return;
           lapseJob = { label };
           for (const r of body.querySelectorAll(".ofr-lapse-actions")) r.dataset.busy = "true";
@@ -863,10 +1004,12 @@
           for (const r of body.querySelectorAll(".ofr-lapse-actions")) r.dataset.busy = "false";
         });
       row.append(
-        run("Save video", "webm", (onProgress) => L.toWebM({ gameId: lapseId(), onProgress, streamer: lapseStreamer(), endCard: model?.state === "ok" ? drawCard(model, { icon, progress }) : null })),
-        run("Save GIF", "gif", (onProgress) => L.toGif({ gameId: lapseId(), onProgress, streamer: lapseStreamer() })),
+        run("Save video", "webm", (onProgress) => L.toWebM({ gameId: lapseId(), onProgress, streamer: lapseStreamer(), endCard: model?.state === "ok" ? drawCard(model, { icon, progress }) : null }),
+          "WebM video: plays inline on Discord and is small. It is recorded in real time (it pauses while this tab is hidden), so it takes as long as it plays."),
+        run("Save GIF", "gif", (onProgress) => L.toGif({ gameId: lapseId(), onProgress, streamer: lapseStreamer() }),
+          "GIF: several times bigger than the video"),
       );
-      pane.append(row, status, el("p", "ofr-recap-note", "Video plays inline on Discord and is small; the GIF is several times bigger. The video is recorded in real time (it pauses while this tab is hidden), so it takes as long as it plays."));
+      pane.append(row, status);
       return pane;
     }
     const hasLapse = () => (globalThis.OFR_LAPSE?.count(lapseId()) ?? 0) >= 5;
@@ -875,51 +1018,124 @@
       if (!model && message && hasLapse() && !tabs.childElementCount) setMessage(message.text, message.opts);
     });
     let message = null;
+    // A state card: loading (spinner) while the record is awaited, error with
+    // "Try again", empty otherwise. opts.title heads it; opts.detail is the
+    // technical reason, in the tooltip only.
     function statusPane() {
       const pane = el("div", "ofr-recap-pane");
-      pane.append(el("p", "ofr-recap-note ofr-recap-wait", message?.text ?? ""));
-      if (message?.opts?.retry) {
-        const again = button("Try again", null, () => message.opts.retry());
-        again.className = "ofr-recap-more";
-        pane.append(again);
+      const opts = message?.opts ?? {};
+      const card = el("p", "ofr-state ofr-recap-wait");
+      card.dataset.kind = opts.kind ?? (opts.retry ? "error" : "empty");
+      if (opts.detail) card.title = opts.detail;
+      const text = el("span");
+      if (opts.title) text.append(el("span", "ofr-state-title", opts.title));
+      text.append(document.createTextNode(message?.text ?? ""));
+      if (opts.retry) {
+        const actions = el("span", "ofr-state-actions");
+        actions.append(button("Try again", null, () => opts.retry(), "ofr-btn ofr-btn-sm"));
+        text.append(actions);
       }
+      card.append(text);
+      pane.append(card);
       return pane;
     }
 
     const PANES = { summary: ["Summary", summaryPane], graphs: ["Graphs", graphsPane], awards: ["Awards", awardsPane], standings: ["Standings", standingsPane], lapse: ["Timelapse", lapsePane], status: ["Status", statusPane] };
 
+    // One tab of the strip (§3.3): role="tab", aria-selected kept with data-on.
+    function tabButton(key, count = null) {
+      const b = button(PANES[key][0], null, () => show(key), "ofr-tab");
+      b.dataset.tab = key;
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", "false");
+      b.tabIndex = -1;
+      if (count) {
+        b.append(el("span", "ofr-tab-count", String(count)));
+        b.setAttribute("aria-label", `${PANES[key][0]} (${count})`);
+      }
+      return b;
+    }
+    function markTabs() {
+      for (const b of tabs.children) {
+        const on = b.dataset.tab === tab;
+        b.dataset.on = String(on);
+        b.setAttribute("aria-selected", String(on));
+        b.tabIndex = on ? 0 : -1;
+      }
+    }
+
     function show(next) {
       tab = next;
       if (tab !== "lapse") lapsePlayer?.stop();
-      for (const b of tabs.children) b.dataset.on = String(b.dataset.tab === tab);
+      markTabs();
       body.replaceChildren(PANES[tab][1]());
       body.scrollTop = 0;
       const mineRow = tab === "standings" ? body.querySelector('tr[data-me="true"]') : null;
       if (mineRow) body.scrollTop = Math.max(0, mineRow.offsetTop - body.clientHeight / 2);
     }
 
+    // The progress lines (content.js: "World rank: Top 2.4% -> Top 2.3%",
+    // "Today: 3 games, 1 win, avg place #6") as one line of graphics: rank
+    // badges with an arrow, a pip per game today, the average place. The
+    // sentences stay in the hover title; a line of any other shape is shown
+    // as it is.
     function renderFoot() {
-      foot.replaceChildren(...progress.map((line) => el("div", null, line)));
+      foot.replaceChildren();
+      if (!progress.length) return;
+      const row = el("div", "ofr-recap-footline");
+      const parts = [];
+      const arrow = (dir, text, tip) => {
+        const a = el("span", "ofr-drift-arrow", text);
+        a.dataset.dir = dir;
+        if (tip) a.title = tip;
+        return a;
+      };
+      for (const line of progress) {
+        let m;
+        if ((m = /^World rank: Top ([\d.]+)% -> Top ([\d.]+)%$/.exec(line))) {
+          const up = Number(m[2]) < Number(m[1]);
+          const box = el("span", "ofr-recap-foot-item");
+          box.append(pctBadge(`Top ${m[1]}%`, Number(m[1])), arrow(up ? "up" : "down", up ? "↗" : "↘"), pctBadge(`Top ${m[2]}%`, Number(m[2])));
+          parts.push(box);
+        } else if ((m = /^World rank: Top ([\d.]+)% \((.+)\)$/.exec(line))) {
+          const box = el("span", "ofr-recap-foot-item");
+          const same = m[2] === "unchanged";
+          box.append(pctBadge(`Top ${m[1]}%`, Number(m[1])), arrow("same", same ? "=" : "…"));
+          parts.push(box);
+        } else if ((m = /^Today: (\d+) games?, (\d+) wins?(?:, avg place #(\d+))?/.exec(line))) {
+          const n = Number(m[1]);
+          const w = Number(m[2]);
+          const box = el("span", "ofr-recap-foot-item");
+          if (C?.icon) box.append(C.icon("calendar"));
+          if (C?.pips) box.append(C.pips({ lit: Math.min(w, 12), total: Math.min(n, 12), glyph: "dot", label: `${n} games today, ${w} won` }));
+          else box.append(document.createTextNode(`${w}/${n}`));
+          if (m[3]) box.append(el("span", "ofr-recap-foot-avg", `avg #${m[3]}`));
+          parts.push(box);
+        } else parts.push(el("span", "ofr-recap-foot-item", line));
+      }
+      foot.append(glance(row, progress.join("\n"), ...parts));
     }
 
     function renderActions() {
       actions.replaceChildren();
       if (!model || model.state !== "ok") return;
       const shareBtn = button("Share image", "Copy a 1200x630 result card to the clipboard, ready to paste into Discord", async (b) => {
-        b.textContent = "Rendering...";
+        b.textContent = "Rendering…";
         try {
           const r = await share(model, { icon, progress });
-          flash(b, r.how === "clipboard" ? "Copied - paste in Discord" : "Saved as PNG", "Share image", 3000);
+          // the full hint in the tooltip too: a narrow button ends it with "…"
+          flash(b, r.how === "clipboard" ? "Copied ✓ Paste in Discord" : "Saved as PNG ✓", "Share image", 3000, "ok",
+            r.how === "clipboard" ? "Copied: paste it in Discord" : null);
         } catch (err) {
-          flash(b, `Failed: ${err?.message ?? err}`, "Share image", 3000);
+          flash(b, "Failed", "Share image", 3000, "error", String(err?.message ?? err));
         }
-      });
-      const copyBtn = button("Copy text", null, async (b) => {
+      }, "ofr-btn ofr-btn-primary");
+      const copyBtn = button("Copy text", "Copy the recap as plain text", async (b) => {
         try {
           await navigator.clipboard.writeText(textLines(model, progress).join("\n"));
-          flash(b, "Copied", "Copy text", 1500);
-        } catch {
-          flash(b, "Copy failed", "Copy text", 1500);
+          flash(b, "Copied ✓", "Copy text", 1500);
+        } catch (err) {
+          flash(b, "Failed", "Copy text", 1500, "error", String(err?.message ?? err));
         }
       });
       actions.append(shareBtn, copyBtn);
@@ -947,20 +1163,14 @@
         if (tab === "status") body.replaceChildren(statusPane());
         return; // do not restart the player (or lose an export) on every poll
       }
-      tabs.replaceChildren(
-        ...["status", "lapse"].map((key) => {
-          const b = button(PANES[key][0], null, () => show(key));
-          b.dataset.tab = key;
-          return b;
-        }),
-      );
+      tabs.replaceChildren(...["status", "lapse"].map((key) => tabButton(key)));
       show(tab === "lapse" ? "lapse" : "status");
     }
 
     function setModel(next) {
       if (next.state !== "ok") {
         model = null;
-        setMessage(next.message);
+        setMessage("No stats recorded", { detail: next.message });
         return;
       }
       model = next;
@@ -969,15 +1179,13 @@
       metaLine.textContent = [m.map, m.mode, m.duration ? mmss(m.duration) : null].filter(Boolean).join(" · ");
       renderHero();
       tabs.replaceChildren(
-        ...Object.entries(PANES).filter(([key]) => key !== "status" && (key !== "lapse" || hasLapse())).map(([key, [label]]) => {
-          const b = button(key === "awards" && model.awards.length ? `${label} ${model.awards.length}` : label, null, () => show(key));
-          b.dataset.tab = key;
-          return b;
-        }),
+        ...Object.keys(PANES)
+          .filter((key) => key !== "status" && (key !== "lapse" || hasLapse()))
+          .map((key) => tabButton(key, key === "awards" && model.awards.length ? model.awards.length : null)),
       );
       if (tab === "lapse" && hasLapse() && body.querySelector(".ofr-lapse-canvas")?.isConnected && lapseStreamerShown === lapseStreamer()) {
         // keep the running preview (and any export) when the recap refreshes around it
-        for (const b of tabs.children) b.dataset.on = String(b.dataset.tab === tab);
+        markTabs();
       } else show(PANES[tab] && tab !== "status" && (tab !== "lapse" || hasLapse()) ? tab : "summary");
       renderFoot();
       renderActions();
@@ -1054,7 +1262,23 @@
     ctx.fillStyle = wash;
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = 1;
-    const toneColor = { win: col.accent, good: col.good, loss: col.elite, neutral: col.average }[model.result.tone] ?? col.average;
+    // --ofr-loss is a color-mix(), so it is resolved through a probe element's
+    // computed colour; elite if the canvas does not take that value.
+    const loss = (() => {
+      try {
+        const probe = document.createElement("span");
+        probe.style.cssText = "position:absolute;display:none;color:var(--ofr-loss)";
+        document.body.append(probe);
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        ctx.fillStyle = "#010203";
+        ctx.fillStyle = value;
+        return value && ctx.fillStyle !== "#010203" ? value : col.elite;
+      } catch {
+        return col.elite;
+      }
+    })();
+    const toneColor = { win: col.accent, good: col.good, loss, neutral: col.average }[model.result.tone] ?? col.average;
     ctx.fillStyle = toneColor;
     ctx.fillRect(0, 0, 10, H);
 

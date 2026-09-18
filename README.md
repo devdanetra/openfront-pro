@@ -117,7 +117,7 @@ the popup):
 | `hidden` | OpenFront's **Hidden Names** setting is on, so every *other* player's name is replaced on your screen with a tribe name. Nothing real is left to look up — this is the usual reason for "I only see myself". Turn it off in OpenFront settings. |
 | `guest` | A generated `Anon…` handle, used by players who never set a name. Thousands of people share each one, so no rank can belong to it. |
 | `new` | No finished public games on ofstats yet. |
-| `?` | ofstats could not be reached, or answered with an error. The failure is cached like a miss, so that name is asked again after 30 minutes (sooner after "Clear cached ranks" and a page reload). |
+| `offline` | ofstats could not be reached, or answered with an error. A failure is cached for only a minute, so that name is asked again soon (a real "no history" answer is kept for 30 minutes). |
 
 ## Where badges appear
 
@@ -236,6 +236,9 @@ page, so what you see there is what the lobby gets.
 | Pastel | light: soft lilac panels, filled pills |
 | Mono | greyscale; rank reads from brightness alone |
 | High contrast | pure black, colour-blind-safe blue/orange, thick borders, **words instead of pictograms** (`HOT`, `SMURF?`, `WIN`) |
+| Midnight | deep navy with a calm cyan accent; Neon without the glow |
+| Ember | warm charcoal, orange and amber, rose for the top band |
+| Daylight | light: crisp white and neutral grey, one indigo accent |
 
 A theme is one id in three places, and `src/themes.js` is the catalogue:
 
@@ -256,6 +259,12 @@ A theme is one id in three places, and `src/themes.js` is the catalogue:
   a hand-picked subset left `:hover` shades on the original palette and the
   theme visibly dropped under the cursor. The generator also **fails** if the
   three places disagree (a theme without a token block, or the reverse).
+
+`node tools/check-theme-contrast.mjs` then checks every token block: all text
+tokens and band colours at 4.5:1 on the panel, card and stage backgrounds (and
+every band on its own badge fill and under `--ofr-on-band`), and that the five
+bands and the loss colour stay apart. `test/themes.html` shows every theme side
+by side.
 
 Before 5.5 these were two pickers ("Theme" and "Restyle OpenFront itself",
 default off). An existing profile is carried over **once** (marker
@@ -695,6 +704,7 @@ src/content.css     tokens + theme blocks; badges, summaries, charts, recap
 src/popup.html/js   settings
 tools/calibrate.mjs re-derives the percentile table from live data
 tools/gen-page-themes.mjs  regenerates src/page-themes.css, checks theme consistency
+tools/check-theme-contrast.mjs  contrast and band-distinctness check for every theme
 tools/test-recap.mjs       recap analysis over real game records, in node
 tools/test-chat.mjs        chat: event rules, text hygiene, --live relay round trip
 tools/test-team.mjs        team channel: pairings, trust, encryption, and the attacks

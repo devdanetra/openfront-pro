@@ -142,8 +142,11 @@
     }
   }
 
-  function stage(w = size.w, h = size.h) {
-    const scale = Math.max(1, Math.min(2, Math.floor(960 / Math.max(1, w))));
+  // maxScale 2 for exports (a sharp picture on Discord); the in-recap preview
+  // uses 1, so its stats strip is drawn at a size that stays legible when the
+  // canvas is shrunk to the panel's width.
+  function stage(w = size.w, h = size.h, maxScale = 2) {
+    const scale = Math.max(1, Math.min(maxScale, Math.floor(960 / Math.max(1, w))));
     const canvas = document.createElement("canvas");
     canvas.width = w * scale;
     canvas.height = h * scale + hudHeight(canvas.width);
@@ -163,7 +166,7 @@
   // Looping preview inside the recap.
   function player(opts = {}) {
     const first = frames[frames.length - 1];
-    const { canvas, ctx, scale } = stage(first?.w ?? size.w, first?.h ?? size.h);
+    const { canvas, ctx, scale } = stage(first?.w ?? size.w, first?.h ?? size.h, 1);
     canvas.className = "ofr-lapse-canvas";
     let i = 0;
     let stopped = false;

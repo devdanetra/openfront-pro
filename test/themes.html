@@ -6,7 +6,7 @@
     <style>
       body { margin: 0; padding: 12px; background: #111318; font: 13px system-ui, sans-serif; color: #ddd; }
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-      iframe { width: 100%; height: 215px; border: 1px solid #2a2d35; border-radius: 8px; background: #1b1e24; }
+      iframe { width: 100%; height: 480px; border: 1px solid #2a2d35; border-radius: 8px; background: #1b1e24; }
       h3 { margin: 0 0 4px; font-size: 12px; color: #9ca3af; }
     </style>
   </head>
@@ -16,27 +16,63 @@
     <script>
       // One iframe per theme: <html data-ofr-theme> is page-wide, so themes can
       // only be shown side by side in separate documents.
+      //
+      // The markup mirrors what the extension builds, so this stays a faithful
+      // preview: content.js renderSummary() / applyBadge() / markThreats() for the
+      // lobby, recap.js createWidget() for the recap. Keep it in step with them:
+      //   - a badge is the main text, then span.ofr-badge-seg for the map rank,
+      //     then the flags; the watched star comes from CSS (--ofr-star), never
+      //     from the text;
+      //   - .ofr-threat sits on the badge itself (a filled badge), not on the row;
+      //   - the summary is an .ofr-card with an .ofr-eyebrow label, the clan
+      //     chips (.ofr-chip) and an .ofr-btn "Copy report";
+      //   - the chart card mirrors charts.js bands() plus a legend, so the band
+      //     fills sit next to the won / lost / you / lobby colours.
+      // Every theme in themes.js gets a frame (nine, three per row).
       const grid = document.getElementById("grid");
       for (const [id, theme] of Object.entries(globalThis.OFR_THEMES)) {
         const i = theme.icons;
+        // attrs may start with a class list: "threat ..." adds .ofr-threat
+        const badge = (attrs, main, seg = "", flags = "") => {
+          const threat = attrs.startsWith("threat ");
+          const rest = threat ? attrs.slice(7) : attrs;
+          return `<span class="ofr-badge${threat ? " ofr-threat" : ""}" ${rest}>${main}${seg ? `<span class="ofr-badge-seg">${seg}</span>` : ""}${flags ? ` ${flags}` : ""}</span>`;
+        };
+        const ranked = (band, extra = "") => `data-ofr-kind="percentile" data-ofr-band="${band}" role="link" tabindex="0" ${extra}`;
+        const missing = (reason) => `data-ofr-kind="missing" data-ofr-reason="${reason}" tabindex="-1"`;
+        // the lobby-bands chart (charts.js bands()) with "you" in strong
+        const bandCols = `<div class="ofr-bands">${[["elite", 2, 30], ["strong", 5, 70], ["good", 7, 100], ["average", 6, 85], ["low", 3, 45], ["unranked", 1, 15]]
+          .map(([b, n, h]) => `<div class="ofr-bands-col"${b === "strong" ? ' data-mine="true"' : ""}><span class="ofr-bands-count">${n}</span><div class="ofr-bands-stem"><span class="ofr-bands-fill" data-ofr-band="${b}" style="height:${h}%"></span></div><span class="ofr-bands-label">${b}</span></div>`).join("")}</div>`;
         const cell = document.createElement("div");
         const label = document.createElement("h3");
         label.textContent = theme.label;
         const frame = document.createElement("iframe");
+        frame.title = `${theme.label} theme`;
         frame.srcdoc = `<!doctype html><html ${id === "classic" ? "" : `data-ofr-theme="${id}"`}>
           <head><meta charset="utf-8"><link rel="stylesheet" href="../src/content.css">
-          <style>body{margin:0;padding:8px;background:#1b1e24;color:#e5e7eb;font:12px system-ui}
-          .row{margin:4px 0}.name{color:#fff}.recap{position:static!important;width:auto!important;margin-top:6px}</style></head>
+          <style>body{margin:0;padding:8px;background:var(--ofr-stage-bg);color:var(--ofr-text);font:12px var(--ofr-ui-font)}
+          .row{margin:4px 0}.name{color:var(--ofr-text)}.gap{margin-left:10px}
+          .chartrow{margin-top:8px;padding:6px 8px 4px}.chartrow .ofr-bands-stem{height:30px}
+          .ofr-recap{position:static!important;width:auto!important;max-width:none!important;margin-top:8px;animation:none}</style></head>
           <body>
-            <div class="ofr-summary"><span class="ofr-summary-text">avg Top 31% · 2 elite · 3 unranked</span><button class="ofr-copy">Copy</button></div>
-            <div class="row"><span class="name">[LUX] TeNa</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="elite">Top 1% ${i.map}0.5% ${i.hot}</span></div>
-            <div class="row ofr-threat"><span class="name">Rage</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="strong">Top 9% ${i.smurf}</span></div>
-            <div class="row"><span class="name">midguy</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="average">Top 48% ${i.cold}</span>
-              <span class="name" style="margin-left:10px">rival</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-watched="true">${i.star} Top 12%</span></div>
-            <div class="row"><span class="name">weakguy</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="low">Top 81%</span>
-              <span class="name" style="margin-left:10px">AnonMoss2</span><span class="ofr-badge" data-ofr-kind="missing">guest</span></div>
-            <div class="ofr-recap recap"><div class="ofr-recap-head"><span>Game recap</span><button>✕</button></div>
-              <div class="ofr-recap-body"><div>${i.trophy} Winner: [LUX] TeNa (Top 1%)</div><div>You: #4 of 38 · Top 23%</div></div></div>
+            <div class="ofr-summary ofr-card"><span class="ofr-summary-label ofr-eyebrow">Lobby</span><span class="ofr-summary-text">avg <b data-ofr-band="good">Top 31%</b> · 2 elite · 3 unranked</span><button type="button" class="ofr-chip ofr-clan-chip">[LUX] ×2 · Top 25%</button><button type="button" class="ofr-btn ofr-btn-sm ofr-copy">Copy report</button></div>
+            <div class="row"><span class="name">[LUX] TeNa</span>${badge(`threat ${ranked("elite")}`, "Top 1%", `${i.map}0.5%`, i.hot)}</div>
+            <div class="row"><span class="name">Rage</span>${badge(`threat ${ranked("strong")}`, "Top 9%", "", i.smurf)}</div>
+            <div class="row"><span class="name">midguy</span>${badge(ranked("average"), "Top 48%", "", i.cold)}
+              <span class="name gap">rival</span>${badge(ranked("strong", 'data-ofr-watched="true"'), "Top 12%")}</div>
+            <div class="row"><span class="name">weakguy</span>${badge(ranked("low"), "Top 81%")}
+              <span class="name gap">AnonMoss2</span>${badge(missing("guest"), "guest")}
+              <span class="name gap">x</span>${badge(missing("error"), "offline")}</div>
+            <div class="row"><span class="name">newbie</span>${badge('data-ofr-kind="winrate" role="link" tabindex="0"', "13% WR · 8 games")}
+              <span class="name gap">…</span>${badge('data-ofr-kind="pending"', "···")}</div>
+            <div class="ofr-card chartrow">${bandCols}<div class="ofr-chart-legend"><span class="ofr-chart-key" data-col="won">won</span><span class="ofr-chart-key" data-col="lost">lost</span><span class="ofr-chart-key" data-kind="me">you</span><span class="ofr-chart-key" data-kind="lobby">lobby</span></div></div>
+            <div class="ofr-recap ofr-float" data-tone="win" role="region" aria-label="Game recap">
+              <div class="ofr-recap-head"><div class="ofr-recap-headtext"><span class="ofr-recap-title">Game recap</span><span class="ofr-recap-meta">World · Free For All</span></div>
+                <button type="button" class="ofr-btn ofr-btn-icon" aria-label="Close recap">✕</button></div>
+              <div class="ofr-recap-hero"><div class="ofr-recap-result"><span class="ofr-recap-big">${i.trophy} Victory</span><span class="ofr-recap-of">first of 38</span></div></div>
+              <div class="ofr-recap-tabs ofr-tabs" role="tablist"><button type="button" class="ofr-tab" role="tab" aria-selected="true" data-on="true">Summary</button><button type="button" class="ofr-tab" role="tab" aria-selected="false">Awards<span class="ofr-tab-count">10</span></button></div>
+              <div class="ofr-recap-actions"><button type="button" class="ofr-btn ofr-btn-primary">Share image</button><button type="button" class="ofr-btn">Copy text</button></div>
+            </div>
           </body></html>`;
         cell.append(label, frame);
         grid.appendChild(cell);

@@ -3,49 +3,34 @@
 .ofr-dash {
   position: fixed;
   inset: 0;
-  z-index: 2147483500;
+  z-index: var(--ofr-z-dash, 2147483500);
   display: flex;
   flex-direction: column;
   background: var(--ofr-stage-bg);
   color: var(--ofr-text);
   font: 14px/1.45 var(--ofr-ui-font);
+  animation: ofr-fade var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out);
 }
 
+/* wraps rather than squeezing the search box (the panel drawer, xlarge size,
+   narrow windows): the box then gets a line of its own with the buttons */
 .ofr-dash-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: var(--ofr-space-4, 8px) 12px;
   padding: 10px 18px;
   background: var(--ofr-panel-bg);
   border-bottom: 1px solid var(--ofr-panel-border);
 }
 
-.ofr-dash-brand { font-size: 16px; font-weight: 800; letter-spacing: 0.02em; }
-.ofr-dash-unofficial { font-size: 11px; color: var(--ofr-text-dim); }
+.ofr-dash-brand { font-size: 16px; font-weight: 800; letter-spacing: 0.02em; white-space: nowrap; }
+.ofr-dash-unofficial { flex: none; }
 
-.ofr-dash-search {
-  flex: 1;
-  min-width: 0;
-  max-width: 380px;
-  margin-left: auto;
-  padding: 6px 10px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: var(--ofr-badge-radius);
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-text);
-  font: inherit;
-}
-
-.ofr-dash-close {
-  padding: 4px 10px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: var(--ofr-badge-radius);
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-text);
-  font-size: 14px;
-  cursor: pointer;
-}
-.ofr-dash-close:hover { background: var(--ofr-btn-hover); }
+/* the search box, Settings and close are .ofr-input / .ofr-btn (content.css) */
+.ofr-dash-search { flex: 1 1 160px; max-width: 380px; margin-left: auto; }
+.ofr-dash-settings, .ofr-dash-close { flex: none; }
+.ofr-dash-bar .ofr-btn .ofr-icon { width: 15px; height: 15px; }
 
 .ofr-dash-body {
   flex: 1;
@@ -64,13 +49,13 @@
 .ofr-dash-name { font-size: 28px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ofr-dash-title .ofr-badge { font-size: 13px; line-height: 20px; margin-left: 0; }
 .ofr-dash-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 6px; color: var(--ofr-text-dim); font-size: 12px; }
-.ofr-dash-link { color: var(--ofr-average); text-decoration: none; }
+.ofr-dash-link { color: var(--ofr-average); text-decoration: none; border-radius: 2px; }
 .ofr-dash-link:hover { text-decoration: underline; }
 
 .ofr-dash-section {
   position: relative; /* for the "Numbers" toggle in the corner */
-  margin: 0 0 18px;
-  padding: 14px 16px;
+  margin: 0 0 var(--ofr-space-6, 16px);
+  padding: var(--ofr-space-6, 16px);
   border: 1px solid var(--ofr-panel-border);
   border-radius: var(--ofr-panel-radius);
   background: var(--ofr-panel-soft);
@@ -80,35 +65,33 @@
   margin: 0 0 12px;
   padding-right: 90px;
   font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: var(--ofr-fw-bold, 700);
+  letter-spacing: var(--ofr-tracking-label, 0.07em);
   text-transform: uppercase;
   color: var(--ofr-text-dim);
 }
-.ofr-dash-note, .ofr-dash-empty, .ofr-dash-loading { margin: 0 0 10px; color: var(--ofr-text-dim); font-size: 12px; }
+/* states are .ofr-state (content.css); the old classes only place them */
+.ofr-dash-note, .ofr-dash-empty, .ofr-dash-loading { margin: 0 0 10px; }
+.ofr-dash-note { color: var(--ofr-text-dim); font-size: 12px; }
+.ofr-dash-body > .ofr-state { margin: 0 0 var(--ofr-space-6, 16px); }
+/* a section with nothing to show (today's session, no games): one slim line */
+.ofr-dash-section.ofr-dash-slim { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 10px 16px; }
+.ofr-dash-slim h2 { margin: 0; padding-right: 0; }
+.ofr-dash-slim > .ofr-state { flex: 1 1 240px; margin: 0; padding: 0; }
 .ofr-dash-dim { color: var(--ofr-text-dim); }
 .ofr-dash-h3, .ofr-dash-subhead h3 { margin: 14px 0 8px; font-size: 12px; font-weight: 700; color: var(--ofr-text); }
 
 /* ---- "Numbers": the exact figures, folded away ------------------------------------ */
+/* the toggle is an .ofr-chip (content.css); only its place and arrow live here */
 .ofr-dash-numbers > summary {
   position: absolute;
-  top: 10px;
+  top: 12px;
   right: 12px;
-  padding: 2px 10px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: 999px;
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-text-dim);
-  font: 600 11px/1.5 var(--ofr-ui-font);
-  list-style: none;
-  cursor: pointer;
   user-select: none;
 }
 .ofr-dash-numbers > summary::-webkit-details-marker { display: none; }
-.ofr-dash-numbers > summary::after { content: " \25BE"; }
-.ofr-dash-numbers[open] > summary::after { content: " \25B4"; }
-.ofr-dash-numbers > summary:hover { color: var(--ofr-text); background: var(--ofr-btn-hover); }
-.ofr-dash-numbers[open] > summary { color: var(--ofr-text); }
+.ofr-dash-numbers > summary::after { content: "\25BE"; }
+.ofr-dash-numbers[open] > summary::after { content: "\25B4"; }
 .ofr-dash-numbers[open] {
   margin-top: 14px;
   padding-top: 12px;
@@ -213,7 +196,7 @@
   min-width: 0;
   padding: 12px 10px 10px;
   border: 1px solid var(--ofr-panel-border);
-  border-radius: calc(var(--ofr-panel-radius) - 2px);
+  border-radius: var(--ofr-radius-inner, 6px);
   background: var(--ofr-panel-bg);
   text-align: center;
 }
@@ -236,7 +219,7 @@
   gap: 10px;
   min-width: 0;
   padding: 8px 12px;
-  border-radius: calc(var(--ofr-panel-radius) - 2px);
+  border-radius: var(--ofr-radius-inner, 6px);
   background: color-mix(in srgb, var(--ofr-panel-bg) 55%, transparent);
 }
 .ofr-iconstat > .ofr-icon { width: 24px; height: 24px; color: var(--ofr-accent); }
@@ -276,7 +259,7 @@
 /* ---- trends --------------------------------------------------------------------- */
 .ofr-dash-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
 .ofr-dash-chart {
-  padding: 10px 12px;
+  padding: var(--ofr-space-4, 8px) var(--ofr-space-5, 12px) var(--ofr-space-5, 12px);
   border: 1px solid var(--ofr-panel-border);
   border-radius: var(--ofr-panel-radius);
   background: var(--ofr-panel-soft);
@@ -294,7 +277,7 @@
 .ofr-maplist {
   padding: 10px 14px 8px;
   border: 1px solid var(--ofr-panel-border);
-  border-radius: calc(var(--ofr-panel-radius) - 2px);
+  border-radius: var(--ofr-radius-inner, 6px);
   background: var(--ofr-panel-bg);
 }
 .ofr-maplist h3 { margin: 0 0 6px; font-size: 12px; font-weight: 700; }
@@ -342,7 +325,7 @@
   max-width: 210px;
   padding: 12px 8px 10px;
   border: 1px solid var(--ofr-panel-border);
-  border-radius: calc(var(--ofr-panel-radius) - 2px);
+  border-radius: var(--ofr-radius-inner, 6px);
   background: var(--ofr-panel-bg);
   text-align: center;
 }
@@ -358,7 +341,7 @@
   min-width: 0;
   padding: 12px 14px;
   border: 1px solid var(--ofr-panel-border);
-  border-radius: calc(var(--ofr-panel-radius) - 2px);
+  border-radius: var(--ofr-radius-inner, 6px);
   background: var(--ofr-panel-bg);
 }
 .ofr-best > .ofr-icon {
@@ -408,19 +391,9 @@ a.ofr-game:hover { background: var(--ofr-btn-hover); }
 }
 .ofr-game[data-fate="plain"] .ofr-game-result { color: var(--ofr-text-dim); }
 .ofr-game-map { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.ofr-game-mode { justify-self: start; padding: 0 6px; border: 1px solid var(--ofr-panel-border); border-radius: 4px; color: var(--ofr-text-dim); font-size: 10.5px; line-height: 17px; }
+.ofr-game-mode { justify-self: start; } /* an .ofr-chip */
 .ofr-game .ofr-meter { height: 6px; }
-.ofr-dash-more {
-  margin-top: 8px;
-  padding: 4px 14px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: 999px;
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-text);
-  font: 600 12px var(--ofr-ui-font);
-  cursor: pointer;
-}
-.ofr-dash-more:hover { background: var(--ofr-btn-hover); }
+.ofr-dash-more { margin-top: var(--ofr-space-4, 8px); } /* an .ofr-btn .ofr-btn-sm */
 
 /* ---- today's session ------------------------------------------------------------------- */
 .ofr-session { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
@@ -461,26 +434,18 @@ a.ofr-game:hover { background: var(--ofr-btn-hover); }
 .ofr-lb-tag { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .ofr-lb-points { font-variant-numeric: tabular-nums; text-align: right; }
 .ofr-lb-row.mine { box-shadow: inset 0 0 0 1px var(--ofr-accent); }
-.ofr-lb-row.mine .ofr-lb-tag { color: var(--ofr-accent); }
+.ofr-lb-row.mine .ofr-lb-tag { color: var(--ofr-accent-ink, var(--ofr-accent)); }
 .ofr-dash-lb { width: 100%; border-collapse: collapse; font-size: 12px; }
 .ofr-dash-lb th { text-align: left; padding: 5px 8px; color: var(--ofr-text-dim); border-bottom: 1px solid var(--ofr-panel-border); }
 .ofr-dash-lb td { padding: 5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--ofr-panel-border) 50%, transparent); }
-.ofr-dash-lb tr.mine td { color: var(--ofr-accent); font-weight: 700; }
+.ofr-dash-lb tr.mine td { color: var(--ofr-accent-ink, var(--ofr-accent)); font-weight: 700; }
 
 /* ---- compare ------------------------------------------------------------------------- */
-.ofr-dash-compare-input {
-  padding: 4px 8px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: var(--ofr-badge-radius);
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-text);
-  font: inherit;
-  width: 200px; /* room for the "[TAG] name" hint */
-}
+.ofr-dash-compare-input { width: 200px; } /* .ofr-input-sm; room for the "[TAG] name" hint */
 .ofr-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 14px; margin-bottom: 14px; }
 .ofr-vs-side { display: flex; align-items: center; justify-content: flex-end; gap: 12px; min-width: 0; }
 .ofr-vs-side.b { flex-direction: row-reverse; }
-.ofr-vs-name { overflow: hidden; color: var(--ofr-accent); font-size: 18px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-vs-name { overflow: hidden; color: var(--ofr-accent-ink, var(--ofr-accent)); font-size: 18px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .ofr-vs-side.b .ofr-vs-name { color: var(--ofr-average); }
 .ofr-vs-word { color: var(--ofr-text-dim); font-size: 12px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
 .ofr-dash-cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -489,9 +454,18 @@ a.ofr-game:hover { background: var(--ofr-btn-hover); }
 .ofr-dash-cmp td:first-child { color: var(--ofr-text-dim); }
 .ofr-dash-cmp .better { color: var(--ofr-good); font-weight: 700; }
 
+/* ---- keyboard: a ring on every link and row ------------------------------------------ */
+:is(a.ofr-game, .ofr-dash-link, .ofr-dash-member a, .ofr-dash-table a, .ofr-lb-row a, .ofr-dash-numbers > summary):focus-visible {
+  outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average));
+  outline-offset: 2px;
+}
+
 /* ---- narrow: the overlay at tablet / phone width, and the "panel" drawer ------------- */
 @container (max-width: 760px) {
   .ofr-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* ten results on one row in a half-width card (the panel drawer) */
+  .ofr-dash-strip.big { gap: 3px; }
+  .ofr-dash-strip.big .ofr-dash-strip-cell { width: 16px; }
   .ofr-iconstat { padding: 8px 10px; }
   .ofr-maplists { grid-template-columns: minmax(0, 1fr); }
   .ofr-game { grid-template-columns: 46px minmax(0, 1.2fr) 40px minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
@@ -515,12 +489,14 @@ a.ofr-game:hover { background: var(--ofr-btn-hover); }
   border: 1px solid var(--ofr-accent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--ofr-accent) 14%, transparent);
-  color: var(--ofr-accent);
+  color: var(--ofr-accent-ink, var(--ofr-accent));
   font: 700 12px/1 var(--ofr-ui-font);
   letter-spacing: 0.04em;
   cursor: pointer;
+  transition: background-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
 }
 .ofr-nav-btn:hover { background: color-mix(in srgb, var(--ofr-accent) 26%, transparent); }
+.ofr-nav-btn:focus-visible { outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average)); outline-offset: 2px; }
 
 /* Preferred placement: a small tilted tag under the OPENFRONT wordmark, to the
    right of the version number, so the header reads "OPENFRONT PRO". */
@@ -533,20 +509,27 @@ a.ofr-game:hover { background: var(--ofr-btn-hover); }
   padding: 2px 7px;
   border-radius: 4px;
   border-width: 1.5px;
-  background: color-mix(in srgb, var(--ofr-accent) 22%, #0b0d12);
+  /* a tint of the accent on the theme's own floating surface: dark themes keep
+     the dark sticker, pastel gets a light one */
+  background: color-mix(in srgb, var(--ofr-accent) 20%, var(--ofr-float-bg, var(--ofr-panel-bg)));
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.12em;
   line-height: 1.2;
   transform: rotate(-8deg);
   transform-origin: center;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
-  transition: transform 0.12s ease, background 0.12s ease;
+  /* dark on the dark themes (as before), a lilac one in pastel */
+  box-shadow: var(--ofr-shadow-tag, 0 2px 6px rgba(0, 0, 0, 0.45));
+  transition: transform var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out),
+              background-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
   z-index: 1;
 }
 .ofr-nav-btn.ofr-logo-tag:hover {
   transform: rotate(-3deg) scale(1.08);
-  background: color-mix(in srgb, var(--ofr-accent) 38%, #0b0d12);
+  background: color-mix(in srgb, var(--ofr-accent) 34%, var(--ofr-float-bg, var(--ofr-panel-bg)));
+}
+@media (prefers-reduced-motion: reduce) {
+  .ofr-nav-btn.ofr-logo-tag:hover { transform: rotate(-8deg); }
 }
 
 /* home-page stats card, under the username field */
@@ -560,18 +543,11 @@ a.ofr-game:hover { background: var(--ofr-btn-hover); }
   font: 13px/1.4 var(--ofr-ui-font);
   text-align: left;
 }
-.ofr-home-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.ofr-home-brand { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ofr-accent); }
-.ofr-home-btn {
-  padding: 3px 10px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: 999px;
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-text);
-  font: 700 11px var(--ofr-ui-font);
-  cursor: pointer;
-}
-.ofr-home-btn:hover { background: var(--ofr-btn-hover); }
+.ofr-home-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.ofr-home-brand { white-space: nowrap; }
+.ofr-home-brand { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ofr-accent-ink, var(--ofr-accent)); }
+/* the buttons are .ofr-btn .ofr-btn-sm (content.css) */
+.ofr-home-btn .ofr-icon { width: 13px; height: 13px; }
 .ofr-home-stats { display: flex; align-items: center; gap: 14px; }
 .ofr-home-side { display: grid; flex: 1; gap: 7px; min-width: 0; }
 /* name, flames, today: one line when there is room, wrapping onto more when
@@ -585,9 +561,12 @@ a.ofr-game:hover { background: var(--ofr-btn-hover); }
 .ofr-home-row { display: flex; align-items: center; gap: 8px; }
 .ofr-home-row > .ofr-icon { width: 15px; height: 15px; color: var(--ofr-text-dim); }
 .ofr-home-row > .ofr-meter { flex: 1; height: 8px; }
+.ofr-home-row-value { min-width: 3ch; color: var(--ofr-text-dim); font-size: var(--ofr-fs-xs, 11px); font-weight: var(--ofr-fw-bold, 700); font-variant-numeric: tabular-nums; text-align: right; }
 .ofr-home .ofr-dash-strip-cell { width: 12px; height: 18px; }
 .ofr-home .ofr-dash-strip-cell[data-mode="duel"] { height: 12px; }
-.ofr-home-note, .ofr-home-empty { margin: 8px 0 4px; font-size: 11px; color: var(--ofr-text-dim); }
+.ofr-home-note { margin: 8px 0 4px; font-size: 11px; color: var(--ofr-text-dim); }
+.ofr-home-empty { margin: 4px 0 0; } /* an .ofr-state-compact */
+.ofr-home-empty.ofr-state-compact { padding-left: 0; padding-right: 0; }
 
 /* ==========================================================================
    Layout templates (see content.css for size). Default is "cards" = the rules
@@ -605,6 +584,7 @@ html[data-ofr-layout="compact"] .ofr-home .ofr-dash-strip { gap: 2px; }
 html[data-ofr-layout="compact"] .ofr-home .ofr-dash-strip-cell { width: 8px; height: 12px; }
 html[data-ofr-layout="compact"] .ofr-home .ofr-dash-strip-cell[data-mode="duel"] { height: 8px; }
 html[data-ofr-layout="compact"] .ofr-home-note { margin: 4px 0 2px; }
+html[data-ofr-layout="compact"] .ofr-home-empty { margin: 0; padding-top: 2px; padding-bottom: 2px; }
 html[data-ofr-layout="compact"] .ofr-dash-body { padding: 10px 14px; }
 html[data-ofr-layout="compact"] .ofr-dash-section { padding: 8px 10px; margin-bottom: 10px; }
 html[data-ofr-layout="compact"] .ofr-dash-section h2 { margin-bottom: 6px; }
@@ -622,68 +602,218 @@ html[data-ofr-layout="panel"] .ofr-home {
   top: 84px;
   width: 300px;
   margin: 0;
-  z-index: 2147483400;
-  background: var(--ofr-panel-bg);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: var(--ofr-z-home, 2147483400);
+  background: var(--ofr-float-bg, var(--ofr-panel-bg));
+  border-radius: var(--ofr-radius-float, 10px);
+  box-shadow: var(--ofr-shadow-3, 0 12px 32px rgba(0, 0, 0, 0.5));
 }
 html[data-ofr-layout="panel"] .ofr-dash {
   left: auto;
   width: min(560px, 100vw);
-  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+  border-left: 1px solid var(--ofr-panel-border);
+  box-shadow: var(--ofr-shadow-3, 0 12px 32px rgba(0, 0, 0, 0.5));
+  animation-name: ofr-drawer-in;
+}
+/* reduced motion: the drawer only fades (the duration tokens are 0 then, so
+   this keeps it from even jumping sideways where they are not defined) */
+@media (prefers-reduced-motion: reduce) {
+  .ofr-dash, html[data-ofr-layout="panel"] .ofr-dash { animation: none; }
 }
 html[data-ofr-layout="panel"] .ofr-dash-body { max-width: none; padding: 14px; }
 html[data-ofr-layout="panel"] .ofr-dash-search { max-width: 220px; }
+/* the drawer: the gear alone, like the panel home card (the button keeps its aria-label) */
+html[data-ofr-layout="panel"] .ofr-dash-settings .ofr-btn-label { display: none; }
 html[data-ofr-layout="panel"] .ofr-dash-name { font-size: 22px; }
 
 /* The card is a full-width block under the username strip (cards / compact). */
 .ofr-home { width: 100%; box-sizing: border-box; }
 
 /* Panel: clear of the centred content column (ends ~995px at 1280 wide). */
-html[data-ofr-layout="panel"] .ofr-home { right: 12px; top: 96px; width: 260px; }
+html[data-ofr-layout="panel"] .ofr-home { right: 12px; top: calc(var(--top-ad-height, 0px) + 96px); width: 260px; }
 html[data-ofr-layout="panel"] .ofr-home-stats { gap: 10px; }
+/* the narrow panel card: the gear alone (the button keeps its aria-label), only
+   while it floats at 260 px; the static fallbacks below have room for the word */
+@media (min-width: 1301px) {
+  html[data-ofr-layout="panel"]:not([data-ofr-site="wide"]):not([data-ofr-site="sidebar"]) .ofr-home-btn .ofr-btn-label { display: none; }
+}
 html[data-ofr-layout="panel"] .ofr-home-stats > .ofr-ring { width: 60px; height: 60px; }
-@media (max-width: 1260px) {
+@media (max-width: 1300px) {
   html[data-ofr-layout="panel"] .ofr-home { position: static; width: 100%; box-shadow: none; }
 }
+/* the wide and sidebar website layouts leave no free column on the right */
+html[data-ofr-site="wide"][data-ofr-layout="panel"] .ofr-home,
+html[data-ofr-site="sidebar"][data-ofr-layout="panel"] .ofr-home { position: static; width: 100%; box-shadow: none; }
 
 /* settings overlay: the popup page in an iframe, opened from the account menu,
    the home card or the dashboard */
 .ofr-settings {
   position: fixed;
   inset: 0;
-  z-index: 2147483640;
+  z-index: var(--ofr-z-settings, 2147483640);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--ofr-scrim, rgba(0, 0, 0, 0.6));
+  animation: ofr-fade var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out);
 }
+/* sized by its content: the in-page iframe is told the popup's height
+   (content.js), the launcher's host scrolls inside the cap */
 .ofr-settings-box {
   display: flex;
   flex-direction: column;
   width: min(400px, 94vw);
-  height: min(720px, 90vh);
+  height: auto;
+  max-height: min(760px, 90vh);
   border: 1px solid var(--ofr-panel-border);
-  border-radius: calc(var(--ofr-panel-radius) + 2px);
+  border-radius: var(--ofr-radius-float, 10px);
   background: var(--ofr-stage-bg);
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--ofr-shadow-4, 0 20px 60px rgba(0, 0, 0, 0.6));
+  animation: ofr-rise var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out);
 }
 .ofr-settings-head {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 4px 6px 4px 14px;
   border-bottom: 1px solid var(--ofr-panel-border);
-  color: var(--ofr-text);
-  font: 700 13px var(--ofr-ui-font);
+  color: var(--ofr-text-dim);
+  font: var(--ofr-fw-semibold, 600) var(--ofr-fs-sm, 12px)/1 var(--ofr-ui-font);
+  letter-spacing: 0.02em;
 }
+/* the launcher's markup has no classes, so the close button is styled here as
+   an .ofr-btn-icon; tools/test-launcher-bridge.mjs clicks this very selector */
 .ofr-settings-head button {
+  display: grid;
+  place-items: center;
+  width: var(--ofr-icon-btn, 28px);
+  height: var(--ofr-icon-btn, 28px);
+  margin: 0;
+  padding: 0;
   border: 0;
+  border-radius: var(--ofr-radius-control, 6px);
   background: none;
   color: var(--ofr-text-dim);
-  font-size: 15px;
+  font: 14px/1 var(--ofr-ui-font);
   cursor: pointer;
+  transition: background-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out),
+              color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
 }
-.ofr-settings-box iframe { flex: 1; width: 100%; border: 0; background: var(--ofr-stage-bg); }
+.ofr-settings-head button:hover { background: var(--ofr-btn-hover); color: var(--ofr-text); }
+.ofr-settings-head button:focus-visible { outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average)); outline-offset: 0; }
+.ofr-settings-box iframe {
+  flex: 0 1 auto;
+  width: 100%;
+  height: 640px;
+  min-height: 0;
+  border: 0;
+  background: var(--ofr-stage-bg);
+  transition: height var(--ofr-dur-3, 240ms) var(--ofr-ease-out, ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ofr-settings, .ofr-settings-box { animation: none; }
+}
 
 .ofr-home-btns { display: inline-flex; gap: 6px; }
+
+/* ==========================================================================
+   Fewer words: short forms on screen, the sentences in hover titles and in a
+   visually hidden copy for screen readers. Shared by the dashboard, the home
+   card and the recap (this file loads on the same pages as content.css).
+   ========================================================================== */
+.ofr-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+/* the visible short form (aria-hidden; its .ofr-sr twin is read instead) */
+.ofr-glance { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* the small "i": how to read a chart, on hover or focus */
+.ofr-info {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-left: 5px;
+  color: var(--ofr-text-dim);
+  vertical-align: middle;
+  cursor: help;
+  opacity: 0.75;
+  border-radius: 50%;
+}
+.ofr-info:hover, .ofr-info:focus-visible { opacity: 1; color: var(--ofr-text); }
+.ofr-info:focus-visible { outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average)); outline-offset: 1px; }
+.ofr-info .ofr-icon { width: 13px; height: 13px; stroke-width: 2.2; }
+
+/* ---- dashboard -------------------------------------------------------------------- */
+.ofr-mirror + .ofr-dash-note { margin-top: 12px; }
+.ofr-dash-seen { display: inline-flex; align-items: center; gap: 5px; cursor: default; }
+.ofr-dash-seen .ofr-icon { width: 13px; height: 13px; }
+.ofr-dash-chart h3 { display: flex; align-items: center; }
+.ofr-dash-legend-item, .ofr-chart-key[title] { cursor: help; }
+.ofr-home-today .ofr-icon { width: 13px; height: 13px; }
+
+/* ---- recap: summary --------------------------------------------------------------- */
+/* the metric chips as one row: icon + value, rank under it */
+.ofr-recap .ofr-recap-body .ofr-recap-chips.ofr-recap-chiprow { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 5px; }
+.ofr-recap-chiprow .ofr-recap-chip { padding: 5px 7px; cursor: default; }
+.ofr-recap-chiprow .ofr-glance { flex-direction: column; align-items: flex-start; gap: 1px; }
+.ofr-recap-chiprow .ofr-recap-chip-value { max-width: 100%; font-size: 15px; }
+.ofr-recap-chiprow .ofr-recap-chip-rank { display: inline-flex; align-items: center; gap: 4px; padding-top: 1px; font-variant-numeric: tabular-nums; }
+.ofr-recap-chiprow .ofr-recap-chip-rank .ofr-icon { width: 12px; height: 12px; }
+
+/* the story lines: icon, who, a short phrase, a badge */
+.ofr-recap-facts { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.ofr-recap-facts > li { min-width: 0; padding: 3px 8px; border-radius: var(--ofr-radius-inner, 6px); background: color-mix(in srgb, var(--ofr-track) 45%, transparent); cursor: default; }
+.ofr-recap-facts .ofr-glance { gap: 7px; }
+.ofr-recap-facts .ofr-icon { width: 14px; height: 14px; color: var(--ofr-text-dim); }
+.ofr-recap-facts .ofr-badge { margin: 0; }
+.ofr-recap-fact-who { min-width: 0; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-recap-fact-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-recap-facts > li[data-kind="killer"] .ofr-icon { color: var(--ofr-loss); }
+.ofr-recap-facts > li:is([data-kind="seed"], [data-kind="giant"], [data-kind="carry"]) .ofr-icon { color: var(--ofr-good); }
+.ofr-recap-facts > li:is([data-kind="favourite"], [data-kind="paper"], [data-kind="upset"]) .ofr-icon { color: var(--ofr-strong); }
+.ofr-recap-delta { flex: none; padding: 0 5px; border-radius: 999px; font-size: 10.5px; font-weight: 800; line-height: 16px; font-variant-numeric: tabular-nums; }
+.ofr-recap-delta[data-dir="up"] { background: color-mix(in srgb, var(--ofr-good) 20%, transparent); color: var(--ofr-good); }
+.ofr-recap-delta[data-dir="down"] { background: color-mix(in srgb, var(--ofr-loss) 20%, transparent); color: var(--ofr-loss); }
+
+/* "AWARDS" with the "All n" button on the same line */
+.ofr-recap h4.ofr-recap-subhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 0; }
+.ofr-recap-subhead .ofr-recap-more { letter-spacing: normal; text-transform: none; }
+
+/* award tiles: icon, title over holder; what they did is in the hover title */
+.ofr-recap-awardgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 0; padding: 0; list-style: none; }
+.ofr-recap-award { min-width: 0; padding: 5px 8px; border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-radius-inner, 6px); cursor: default; }
+.ofr-recap-award .ofr-glance { gap: 8px; }
+.ofr-recap-award .ofr-icon { width: 18px; height: 18px; color: var(--ofr-text-dim); }
+.ofr-recap-award-words { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.ofr-recap-award-words .ofr-recap-award-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-recap-award-words .ofr-recap-award-who { font-size: 12px; }
+.ofr-recap-award[data-mine="true"] { border-color: color-mix(in srgb, var(--ofr-accent) 70%, transparent); }
+.ofr-recap-award[data-mine="true"] :is(.ofr-icon, .ofr-recap-award-title, .ofr-recap-award-who) { color: var(--ofr-accent-ink, var(--ofr-accent)); }
+
+/* ---- recap: graphs, standings, timelapse ------------------------------------------- */
+.ofr-recap-chart[title], .ofr-cmp-row[title] { cursor: default; }
+.ofr-recap-noteline { display: flex; align-items: center; }
+.ofr-recap-table th .ofr-icon { width: 12px; height: 12px; }
+.ofr-recap-table th .ofr-info { margin-left: 3px; }
+.ofr-recap-table th .ofr-info .ofr-icon { width: 11px; height: 11px; }
+
+/* ---- recap: the footer as one line --------------------------------------------------- */
+.ofr-recap-footline { cursor: default; }
+.ofr-recap-footline .ofr-glance { flex-wrap: wrap; gap: 4px 14px; }
+.ofr-recap-foot-item { display: inline-flex; align-items: center; gap: 5px; }
+.ofr-recap-foot-item .ofr-badge { margin: 0; }
+.ofr-recap-foot-item > .ofr-icon { width: 13px; height: 13px; }
+.ofr-recap-foot-item .ofr-drift-arrow { font-size: 14px; line-height: 1; }
+.ofr-recap-foot-item .ofr-pips { flex-wrap: nowrap; }
+.ofr-recap-foot-avg { font-weight: 700; font-variant-numeric: tabular-nums; }

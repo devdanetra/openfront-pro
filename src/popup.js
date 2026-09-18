@@ -80,12 +80,14 @@ const GUARDED = {
       const { chatConsent } = await chrome.storage.sync.get({ chatConsent: false });
       if (chatConsent) return chrome.storage.sync.set({ chatEnabled: true });
       input.checked = false;
+      refreshDeps();
       box.hidden = false;
     });
     byId("chat-agree").addEventListener("click", async (e) => {
       if (!e.isTrusted) return; // a person agreed, not a script
       await chrome.storage.sync.set({ chatConsent: true, chatEnabled: true });
       input.checked = true;
+      refreshDeps();
       box.hidden = true;
     });
     byId("chat-cancel").addEventListener("click", () => (box.hidden = true));
@@ -201,6 +203,23 @@ async function load() {
       chrome.storage.sync.set({ [key]: select.value }),
     );
   }
+  // Presentation only: dim what an off switch makes moot, and say On/Off next to
+  // the master switch. Nothing here changes a setting.
+  for (const parent of new Set(Object.values(DEPENDS))) byId(parent)?.addEventListener("change", refreshDeps);
+  byId("enabled")?.addEventListener("change", refreshDeps);
+  refreshDeps();
+}
+
+// Settings that only matter while another one is on. Their rows are dimmed (not
+// disabled: they stay operable) while it is off.
+const DEPENDS = { chatFilter: "chatEnabled", chatTeam: "chatEnabled", chatInFfa: "chatEnabled", timelapse: "showRecap" };
+function refreshDeps() {
+  for (const [key, parent] of Object.entries(DEPENDS)) {
+    const on = byId(parent)?.checked !== false;
+    byId(key)?.closest("label")?.classList.toggle("dep-off", !on);
+  }
+  const master = byId("enabled-state");
+  if (master) master.textContent = byId("enabled")?.checked ? "On" : "Off";
 }
 
 byId("clear").addEventListener("click", async () => {
@@ -224,22 +243,6 @@ function ago(ts) {
   const secs = Math.round((Date.now() - ts) / 1000);
   if (secs < 60) return `${secs}s ago`;
   return `${Math.round(secs / 60)}m ago`;
-}
-
-// Reported values originate in a content script running on a page we do not
-// control, so nothing from them reaches innerHTML unescaped.
-function esc(value) {
-  return String(value).replace(
-    /[&<>"']/g,
-    (c) =>
-      ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      })[c],
-  );
 }
 
 // Chrome reports a dead worker by resolving undefined and setting lastError,
@@ -343,9 +346,35 @@ async function injectNow() {
 if (IN_PAGE) byId("inject").hidden = true; // nothing to inject into: the launcher did that
 else byId("inject").addEventListener("click", injectNow);
 
+// One status line: a dot (ok true = green, false = red, "" = neutral, null = no
+// dot), a label, a value on the right and optional detail lines under it. Every
+// string goes in as textContent: reported values come from a content script
+// running on a page we do not control.
+function statusRow(ok, label, value, detail) {
+  const row = document.createElement("div");
+  row.className = "status-row";
+  if (ok !== null) row.dataset.ok = ok === "" ? "" : String(ok);
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  const b = document.createElement("b");
+  b.textContent = label;
+  const val = document.createElement("span");
+  val.className = "val";
+  val.textContent = value;
+  row.append(dot, b, val);
+  const nodes = [row];
+  if (detail) {
+    const d = document.createElement("div");
+    d.className = "status-detail";
+    d.textContent = detail;
+    nodes.push(d);
+  }
+  return nodes;
+}
+
 async function status() {
   const el = byId("status");
-  const lines = [`<b>v${esc(chrome.runtime.getManifest().version)}</b>`];
+  const rows = [statusRow(null, "Version", `v${chrome.runtime.getManifest().version}`)];
 
   const [worker, api, stored, site, stale] = await Promise.all([
     pingWorker(),
@@ -356,56 +385,48 @@ async function status() {
   ]);
 
   if (stale) {
-    lines.push(
-      `<span class="bad">Files updated to v${esc(stale.onDisk)}, but Chrome still runs v${esc(stale.running)}.</span>\nOpen chrome://extensions and press the reload arrow on OpenFront Pro, then reload the game tab.`,
+    rows.push(
+      statusRow(false, "Files", `v${stale.onDisk} on disk, v${stale.running} running`,
+        "Open chrome://extensions and press the reload arrow on OpenFront Pro, then reload the game tab."),
     );
   }
 
-  lines.push(
-    worker.ok
-      ? '<span class="good">Worker: running</span>'
-      : `<span class="bad">Worker: DOWN</span>\n${esc(worker.error)}`,
-  );
-  lines.push(
+  rows.push(worker.ok ? statusRow(true, "Worker", "running") : statusRow(false, "Worker", "DOWN", String(worker.error)));
+  rows.push(
     api.ok === null
-      ? `<span>ofstats.io: not checked</span> (${esc(api.error ?? "lookups are off")})`
+      ? statusRow("", "ofstats.io", "not checked", String(api.error ?? "lookups are off"))
       : api.ok
-        ? '<span class="good">ofstats.io: reachable</span>'
-        : `<span class="bad">ofstats.io: FAILED</span>\n${esc(api.error ?? "?")}`,
+        ? statusRow(true, "ofstats.io", "reachable")
+        : statusRow(false, "ofstats.io", "FAILED", String(api.error ?? "?")),
   );
 
   if (site.granted === false) {
-    lines.push(
-      '<span class="bad">Site access: withheld for openfront.io.</span>\nchrome://extensions → this card → Details → Site access → "On all sites".',
+    rows.push(
+      statusRow(false, "Site access", "withheld for openfront.io",
+        'chrome://extensions → this card → Details → Site access → "On all sites".'),
     );
   }
 
   const r = stored?.lastReport;
   if (!r) {
-    lines.push(
-      '<span class="bad">Page script: never reported.</span>\nPress "Enable on openfront.io" below, then reload the page.',
-    );
+    rows.push(statusRow(false, "Page script", "never reported", 'Press "Enable on openfront.io" below, then reload the page.'));
   } else if (r.crashed) {
-    lines.push(
-      `<span class="bad">Page script crashed:</span>\n${esc(r.crashed)} (line ${esc(r.line)})`,
-    );
+    rows.push(statusRow(false, "Page script", "crashed", `${r.crashed} (line ${r.line})`));
   } else if (r.lookupFailed) {
-    lines.push(
-      `<span class="bad">Lookup failed for ${esc(r.wanted ?? 0)} names:</span>
-${esc(r.lookupFailed)}`,
-    );
+    rows.push(statusRow(false, "Lookup", `failed for ${r.wanted ?? 0} names`, String(r.lookupFailed)));
   } else if (r.started) {
-    lines.push(`Page script: started ${ago(r.at)}, no lobby scanned yet.`);
+    rows.push(statusRow("", "Page script", `started ${ago(r.at)}`, "No lobby scanned yet."));
   } else {
-    lines.push(
-      `Last scan ${ago(r.at)}:\nnames ${esc(r.scanned ?? 0)} · ranked ${esc(r.ranked ?? 0)} · badges ${esc(r.badgesOnPage ?? 0)}` +
-        `\nmap: ${r.map ? esc(r.map) : "not detected"}` +
-        (r.placeholders ? `\nskipped (guest/hidden): ${esc(r.placeholders)}` : "") +
-        (r.note ? `\n${esc(r.note)}` : ""),
+    rows.push(
+      statusRow(true, "Last scan", ago(r.at),
+        `names ${r.scanned ?? 0} · ranked ${r.ranked ?? 0} · badges ${r.badgesOnPage ?? 0}` +
+          `\nmap: ${r.map ? r.map : "not detected"}` +
+          (r.placeholders ? `\nskipped (guest/hidden): ${r.placeholders}` : "") +
+          (r.note ? `\n${r.note}` : "")),
     );
   }
 
-  el.innerHTML = lines.join("\n");
+  el.replaceChildren(...rows.flat());
 }
 
 // Starred players, with a remove button each. Built with DOM methods, not
@@ -420,9 +441,13 @@ async function renderWatchlist() {
   }
   list.replaceChildren();
   if (names.length === 0) {
+    // the shared empty state (content.css .ofr-state), compact inside the list
     const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = "No one yet";
+    li.className = "empty ofr-state ofr-state-compact";
+    li.dataset.kind = "empty";
+    const text = document.createElement("span");
+    text.textContent = "No one yet. Shift+click a rank badge in a lobby to watch a player.";
+    li.appendChild(text);
     list.appendChild(li);
     return;
   }
@@ -430,9 +455,12 @@ async function renderWatchlist() {
     const li = document.createElement("li");
     const label = document.createElement("span");
     label.textContent = `★ ${name}`;
+    label.title = name;
     const remove = document.createElement("button");
     remove.type = "button";
+    remove.className = "ofr-btn ofr-btn-icon ofr-btn-sm";
     remove.textContent = "✕";
+    remove.setAttribute("aria-label", `Remove ${name}`);
     remove.title = `Remove ${name}`;
     remove.addEventListener("click", async () => {
       const next = names.filter((n) => n !== name);
@@ -446,13 +474,15 @@ async function renderWatchlist() {
 
 // Theme picker. The popup loads the same content.css and themes.js as the page,
 // so the preview badges are rendered exactly the way they will look in a lobby.
+// Same structure as content.js' badges: the main text, then an optional map
+// segment (span.ofr-badge-seg), then the flags. The watched star comes from CSS.
 const PREVIEW_TEXT = [
-  (i) => `Top 1% ${i.map}0.5% ${i.hot}`,
-  (i) => `Top 9% ${i.smurf}`,
-  (i) => "Top 23%",
-  (i) => `Top 48% ${i.cold}`,
-  (i) => "Top 81%",
-  (i) => `${i.star} Top 12%`,
+  { main: "Top 1%", seg: (i) => `${i.map ?? ""}0.5%`, flags: (i) => i.hot },
+  { main: "Top 9%", flags: (i) => i.smurf },
+  { main: "Top 23%" },
+  { main: "Top 48%", flags: (i) => i.cold },
+  { main: "Top 81%" },
+  { main: "Top 12%" },
 ];
 
 function previewTheme(theme) {
@@ -477,7 +507,19 @@ function previewTheme(theme) {
     "#theme-preview .ofr-badge:not([data-ofr-kind='missing'])",
   );
   badges.forEach((badge, i) => {
-    badge.textContent = PREVIEW_TEXT[i]?.(icons) ?? "";
+    const entry = PREVIEW_TEXT[i];
+    if (!entry) return void badge.replaceChildren();
+    const nodes = [document.createTextNode(entry.main)];
+    const seg = entry.seg?.(icons);
+    if (seg) {
+      const s = document.createElement("span");
+      s.className = "ofr-badge-seg";
+      s.textContent = seg;
+      nodes.push(s);
+    }
+    const flags = entry.flags?.(icons);
+    if (flags) nodes.push(document.createTextNode(` ${flags}`));
+    badge.replaceChildren(...nodes);
   });
 }
 
@@ -508,13 +550,29 @@ async function loadTheme() {
 function tabs() {
   const buttons = [...ROOT.querySelectorAll(".tabs button[data-tab]")];
   const show = (name) => {
-    for (const b of buttons) b.setAttribute("aria-selected", String(b.dataset.tab === name));
+    for (const b of buttons) {
+      const on = b.dataset.tab === name;
+      b.setAttribute("aria-selected", String(on));
+      b.tabIndex = on ? 0 : -1; // one tab stop for the strip; arrows move within it
+    }
     for (const pane of ROOT.querySelectorAll(".pane")) pane.dataset.on = String(pane.dataset.pane === name);
+    postHeight();
+  };
+  const pick = (b) => {
+    show(b.dataset.tab);
+    chrome.storage.local.set({ popupTab: b.dataset.tab }).catch(() => {});
   };
   for (const b of buttons) {
-    b.addEventListener("click", () => {
-      show(b.dataset.tab);
-      chrome.storage.local.set({ popupTab: b.dataset.tab }).catch(() => {});
+    b.addEventListener("click", () => pick(b));
+    b.addEventListener("keydown", (e) => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      const to = step
+        ? buttons[(buttons.indexOf(b) + step + buttons.length) % buttons.length]
+        : e.key === "Home" ? buttons[0] : e.key === "End" ? buttons.at(-1) : null;
+      if (!to) return;
+      e.preventDefault();
+      pick(to);
+      to.focus();
     });
   }
   show("look");
@@ -531,6 +589,23 @@ function tabs() {
     (st) => show(buttons.some((b) => b.dataset.tab === st.popupTab) ? st.popupTab : "look"),
     () => {},
   );
+}
+
+// Framed on openfront.io (the in-page settings overlay): tell the page how tall
+// the content is, so the box fits the active tab. Only a number is sent.
+function postHeight() {
+  if (IN_PAGE || window.top === window) return;
+  const h = Math.ceil(document.body.getBoundingClientRect().height);
+  if (h > 0) parent.postMessage({ ofrSettingsHeight: h }, "*");
+}
+if (!IN_PAGE && window.top !== window) {
+  window.addEventListener("load", postHeight);
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => postHeight()).observe(document.body);
+  // Keys pressed in here never reach the page, so its "Close (Esc)" hears Esc
+  // this way. Only a boolean is sent.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !e.defaultPrevented) parent.postMessage({ ofrSettingsClose: true }, "*");
+  });
 }
 
 tabs();

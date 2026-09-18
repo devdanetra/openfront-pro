@@ -36,13 +36,228 @@
   --ofr-ui-font: system-ui, sans-serif;
   /* bar and strip tracks: derived, so every theme (light ones too) gets one */
   --ofr-track: color-mix(in srgb, var(--ofr-text) 13%, transparent);
+
+  /* spacing (4 px grid) */
+  --ofr-space-1: 2px;
+  --ofr-space-2: 4px;
+  --ofr-space-3: 6px;
+  --ofr-space-4: 8px;
+  --ofr-space-5: 12px;
+  --ofr-space-6: 16px;
+  --ofr-space-7: 24px;
+  --ofr-space-8: 32px;
+
+  /* radii: derived from the two existing radius tokens, so themes rarely need to repeat them */
+  --ofr-radius-control: calc(var(--ofr-badge-radius) + 2px);        /* buttons, inputs, selects */
+  --ofr-radius-inner: max(0px, calc(var(--ofr-panel-radius) - 2px)); /* tiles inside a card, toasts */
+  --ofr-radius-float: calc(var(--ofr-panel-radius) + 2px);          /* recap, chat panel, settings box */
+  --ofr-radius-pill: 999px;
+  --ofr-radius-switch: 999px;
+
+  /* type scale; 10 px is the floor for any text */
+  --ofr-fs-2xs: 10px;
+  --ofr-fs-xs: 11px;
+  --ofr-fs-sm: 12px;
+  --ofr-fs-md: 13px;
+  --ofr-fs-lg: 15px;
+  --ofr-fs-xl: 18px;
+  --ofr-fs-2xl: 24px;
+  --ofr-fs-3xl: 28px;
+  --ofr-fs-label: 10.5px;          /* uppercase eyebrow labels */
+  --ofr-tracking-label: 0.07em;
+  --ofr-fw-regular: 400;
+  --ofr-fw-medium: 500;
+  --ofr-fw-semibold: 600;
+  --ofr-fw-bold: 700;
+  --ofr-fw-heavy: 800;
+  --ofr-lh-tight: 1.15;
+  --ofr-lh-snug: 1.3;
+  --ofr-lh-normal: 1.45;
+  --ofr-mono-font: ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* colour roles */
+  --ofr-accent-ink: var(--ofr-accent);  /* accent used AS TEXT on panel/stage */
+  --ofr-on-accent: #1a1300;             /* text/thumb ON a filled accent */
+  --ofr-on-band: #0b0d12;               /* text ON a filled band colour (threat badge, state dots) */
+  --ofr-float-bg: rgb(15 18 26);        /* opaque background of floating panels */
+  --ofr-scrim: rgba(0, 0, 0, 0.6);
+  --ofr-star: "★";                      /* watched mark, matches themes.js icons.star */
+
+  /* elevation */
+  --ofr-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --ofr-shadow-2: 0 6px 20px rgba(0, 0, 0, 0.45);
+  --ofr-shadow-3: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --ofr-shadow-4: 0 20px 60px rgba(0, 0, 0, 0.6);
+  --ofr-shadow-tag: 0 2px 6px rgba(0, 0, 0, 0.45); /* the small PRO tag on the site's logo */
+
+  /* focus */
+  --ofr-focus-color: var(--ofr-average);
+  --ofr-focus-width: 2px;
+  --ofr-focus-offset: 2px;
+
+  /* motion */
+  --ofr-dur-1: 120ms;   /* hover, press, colour */
+  --ofr-dur-2: 160ms;   /* enter / exit */
+  --ofr-dur-3: 240ms;   /* height, large moves */
+  --ofr-ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ofr-ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* layers (bottom to top) */
+  --ofr-z-home: 2147483400;
+  --ofr-z-dash: 2147483500;
+  --ofr-z-chat: 2147483590;
+  --ofr-z-float: 2147483600;     /* recap */
+  --ofr-z-viewer: 2147483610;
+  --ofr-z-settings: 2147483640;
+  --ofr-z-toast: 2147483645;
+
+  /* control heights */
+  --ofr-ctl-h-sm: 24px;   /* inline in-page controls: Copy, chips, Verify, Numbers */
+  --ofr-ctl-h-md: 30px;   /* panel controls: recap actions, chat send, dashboard bar, viewer */
+  --ofr-ctl-h-lg: 38px;   /* page-level primary actions: welcome, popup consent */
+  --ofr-icon-btn: 28px;
 }
+@media (prefers-reduced-motion: reduce) {
+  :root { --ofr-dur-1: 0ms; --ofr-dur-2: 0ms; --ofr-dur-3: 0ms; }
+}
+
+/* ==========================================================================
+   Shared components (UI-SPEC §3). Every surface builds its controls from
+   these; an element keeps its own class only as a layout hook.
+   ========================================================================== */
+@keyframes ofr-fade { from { opacity: 0; } }
+@keyframes ofr-rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes ofr-drawer-in { from { opacity: 0; transform: translateX(24px); } }
+@keyframes ofr-spin { to { transform: rotate(360deg); } }
+@keyframes ofr-pulse { 50% { opacity: 0.45; } }
+
+/* --- buttons --------------------------------------------------------------- */
+.ofr-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--ofr-space-2, 4px);
+  box-sizing: border-box; min-height: var(--ofr-ctl-h-md, 30px); margin: 0;
+  padding: 0 var(--ofr-space-5, 12px);
+  border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-radius-control, 6px);
+  background: var(--ofr-btn-bg); color: var(--ofr-text);
+  font: var(--ofr-fw-semibold, 600) var(--ofr-fs-sm, 12px)/1.2 var(--ofr-ui-font);
+  white-space: nowrap; text-decoration: none; cursor: pointer; user-select: none;
+  transition: background-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out),
+              border-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out),
+              color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out),
+              transform var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
+}
+.ofr-btn:hover { background: var(--ofr-btn-hover); }
+.ofr-btn:active { transform: translateY(1px); }
+.ofr-btn:disabled, .ofr-btn[aria-disabled="true"] { opacity: 0.5; cursor: default; transform: none; background: var(--ofr-btn-bg); }
+.ofr-btn .ofr-icon { width: 15px; height: 15px; }
+
+.ofr-btn-primary { background: var(--ofr-accent); border-color: var(--ofr-accent); color: var(--ofr-on-accent, #1a1300); font-weight: var(--ofr-fw-bold, 700); }
+.ofr-btn-primary:hover { background: color-mix(in srgb, var(--ofr-accent) 86%, var(--ofr-text)); }
+
+.ofr-btn-ghost { background: transparent; border-color: transparent; color: var(--ofr-text-dim); }
+.ofr-btn-ghost:hover { background: var(--ofr-btn-hover); color: var(--ofr-text); }
+.ofr-btn-danger, .ofr-btn-danger:hover { color: var(--ofr-elite); } /* also over .ofr-btn-ghost:hover */
+
+.ofr-btn-icon { width: var(--ofr-icon-btn, 28px); height: var(--ofr-icon-btn, 28px); min-height: 0; padding: 0;
+  background: transparent; border-color: transparent; color: var(--ofr-text-dim); font-size: 14px; line-height: 1; }
+.ofr-btn-icon:hover { background: var(--ofr-btn-hover); color: var(--ofr-text); }
+
+.ofr-btn-sm { min-height: var(--ofr-ctl-h-sm, 24px); padding: 0 var(--ofr-space-4, 8px); font-size: var(--ofr-fs-xs, 11px); }
+.ofr-btn-icon.ofr-btn-sm { width: 24px; height: 24px; font-size: 12px; }
+.ofr-btn-lg { min-height: var(--ofr-ctl-h-lg, 38px); padding: 0 var(--ofr-space-6, 16px); font-size: var(--ofr-fs-md, 13px); }
+
+/* transient result of an action ("Copied ✓", "Failed") */
+.ofr-btn[data-state="ok"] { color: var(--ofr-good); border-color: currentColor; }
+.ofr-btn[data-state="error"] { color: var(--ofr-elite); border-color: currentColor; }
+/* ...but on a filled primary the text stays readable on the accent; the edge carries the tone */
+.ofr-btn-primary[data-state="ok"] { color: var(--ofr-on-accent, #1a1300); border-color: var(--ofr-good); }
+.ofr-btn-primary[data-state="error"] { color: var(--ofr-on-accent, #1a1300); border-color: var(--ofr-elite); }
+
+/* --- chip ------------------------------------------------------------------ */
+.ofr-chip { display: inline-flex; align-items: center; gap: var(--ofr-space-2, 4px); box-sizing: border-box;
+  height: 20px; padding: 0 var(--ofr-space-4, 8px); border: 1px solid var(--ofr-panel-border);
+  border-radius: var(--ofr-radius-pill, 999px); background: var(--ofr-btn-bg); color: var(--ofr-text);
+  font: var(--ofr-fw-bold, 700) var(--ofr-fs-2xs, 10px)/1 var(--ofr-ui-font); white-space: nowrap; }
+:is(button, summary).ofr-chip { height: var(--ofr-ctl-h-sm, 24px); cursor: pointer; list-style: none;
+  transition: background-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out); }
+:is(button, summary).ofr-chip:hover { background: var(--ofr-btn-hover); }
+:is(button, summary).ofr-chip:active { transform: translateY(1px); }
+.ofr-chip[data-tone="accent"] { border-color: var(--ofr-accent); color: var(--ofr-accent-ink, var(--ofr-accent)); }
+.ofr-chip[data-tone="good"] { border-color: color-mix(in srgb, var(--ofr-good) 60%, transparent); color: var(--ofr-good); }
+.ofr-chip[data-tone="bad"] { border-color: color-mix(in srgb, var(--ofr-elite) 60%, transparent); color: var(--ofr-elite); }
+.ofr-chip[data-tone="warn"] { border-color: currentColor; color: var(--ofr-strong); }
+
+/* --- tab strip ------------------------------------------------------------- */
+.ofr-tabs { display: flex; gap: var(--ofr-space-1, 2px); border-bottom: 1px solid var(--ofr-panel-border); }
+.ofr-tab { flex: 1 1 0; min-width: 0; min-height: var(--ofr-ctl-h-md, 30px); margin: 0 0 -1px; padding: 6px 8px 7px;
+  border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--ofr-text-dim);
+  font: var(--ofr-fw-semibold, 600) var(--ofr-fs-sm, 12px)/1.2 var(--ofr-ui-font);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+  transition: color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out), border-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out); }
+.ofr-tab:hover { color: var(--ofr-text); }
+.ofr-tab:is([aria-selected="true"], [data-on="true"]) { color: var(--ofr-text); border-bottom-color: var(--ofr-accent); }
+.ofr-tabs > .ofr-tab:focus-visible { outline: none; box-shadow: inset 0 0 0 var(--ofr-focus-width, 2px) var(--ofr-focus-color, var(--ofr-average)); }
+.ofr-tab-count { margin-left: var(--ofr-space-2, 4px); padding: 0 5px; border-radius: var(--ofr-radius-pill, 999px);
+  background: var(--ofr-track); font-size: var(--ofr-fs-2xs, 10px); font-weight: var(--ofr-fw-bold, 700); }
+.ofr-tab[data-unread="true"]::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 5px;
+  border-radius: 50%; background: var(--ofr-accent); vertical-align: 2px; }
+
+/* --- section header (eyebrow) ---------------------------------------------- */
+.ofr-eyebrow { margin: 0 0 var(--ofr-space-3, 6px); color: var(--ofr-text-dim);
+  font: var(--ofr-fw-bold, 700) var(--ofr-fs-label, 10.5px)/var(--ofr-lh-snug, 1.3) var(--ofr-ui-font);
+  letter-spacing: var(--ofr-tracking-label, 0.07em); text-transform: uppercase; }
+.ofr-eyebrow small { margin-left: var(--ofr-space-3, 6px); font-weight: var(--ofr-fw-regular, 400); letter-spacing: 0; text-transform: none; }
+
+/* --- card, tile, float ----------------------------------------------------- */
+.ofr-card { border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-soft); }
+.ofr-tile { border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-radius-inner, 6px); background: var(--ofr-panel-bg); }
+.ofr-float { border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-radius-float, 10px);
+  background: var(--ofr-float-bg, var(--ofr-panel-bg)); box-shadow: var(--ofr-shadow-3, 0 12px 32px rgba(0,0,0,.5)); }
+
+/* --- input ----------------------------------------------------------------- */
+.ofr-input { box-sizing: border-box; min-width: 0; height: var(--ofr-ctl-h-md, 30px); padding: 0 var(--ofr-space-5, 12px);
+  border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-radius-control, 6px); background: var(--ofr-btn-bg);
+  color: var(--ofr-text); font: var(--ofr-fw-regular, 400) var(--ofr-fs-md, 13px)/1.2 var(--ofr-ui-font);
+  transition: border-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out); }
+.ofr-input::placeholder { color: var(--ofr-text-dim); opacity: 1; }
+.ofr-input:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ofr-text) 35%, var(--ofr-btn-border)); }
+.ofr-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.ofr-input-sm { height: var(--ofr-ctl-h-sm, 24px); padding: 0 var(--ofr-space-4, 8px); font-size: var(--ofr-fs-sm, 12px); }
+
+/* --- empty / loading / error / ok states ----------------------------------- */
+.ofr-state { display: flex; align-items: flex-start; gap: var(--ofr-space-4, 8px); margin: 0;
+  padding: var(--ofr-space-5, 12px); border: 1px dashed var(--ofr-panel-border); border-radius: var(--ofr-radius-inner, 6px);
+  color: var(--ofr-text-dim); font: var(--ofr-fs-sm, 12px)/var(--ofr-lh-normal, 1.45) var(--ofr-ui-font); }
+.ofr-state::before { content: ""; flex: none; box-sizing: border-box; width: 14px; height: 14px; margin-top: 1px; border-radius: 50%; }
+.ofr-state-title { display: block; color: var(--ofr-text); font-weight: var(--ofr-fw-semibold, 600); }
+.ofr-state-actions { display: flex; flex-wrap: wrap; gap: var(--ofr-space-3, 6px); margin-top: var(--ofr-space-4, 8px); }
+.ofr-state[data-kind="empty"]::before { box-shadow: inset 0 0 0 2px var(--ofr-track); }
+.ofr-state[data-kind="loading"]::before { border: 2px solid var(--ofr-track); border-top-color: var(--ofr-accent); animation: ofr-spin 0.8s linear infinite; }
+.ofr-state[data-kind="error"] { border-style: solid; border-color: color-mix(in srgb, var(--ofr-elite) 45%, transparent); color: var(--ofr-text); }
+.ofr-state[data-kind="error"]::before { content: "!"; display: grid; place-items: center; background: var(--ofr-elite);
+  color: var(--ofr-on-band, #0b0d12); font: 800 10px/1 var(--ofr-ui-font); }
+.ofr-state[data-kind="ok"] { border-style: solid; border-color: color-mix(in srgb, var(--ofr-good) 45%, transparent); color: var(--ofr-text); }
+.ofr-state[data-kind="ok"]::before { content: "✓"; display: grid; place-items: center; background: var(--ofr-good);
+  color: var(--ofr-on-band, #0b0d12); font: 800 10px/1 var(--ofr-ui-font); }
+.ofr-state-compact { padding: var(--ofr-space-3, 6px) var(--ofr-space-4, 8px); border: 0; }
+@media (prefers-reduced-motion: reduce) { .ofr-state[data-kind="loading"]::before { animation: none; } }
+
+/* --- shared focus ring ----------------------------------------------------- */
+:is(.ofr-btn, .ofr-chip, .ofr-input, .ofr-badge[data-ofr-profile], .ofr-map-preview, .ofr-chat-mute,
+    .ofr-chat-mutes, .ofr-chat-tab, .ofr-team-emoji):focus-visible {
+  outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average));
+  outline-offset: var(--ofr-focus-offset, 2px);
+}
+
+/* A full-screen view of ours is open (map viewer, dashboard): the page under it
+   does not scroll. The attribute is ours; OpenFront's own styles are untouched. */
+html[data-ofr-modal], html[data-ofr-modal] body { overflow: hidden !important; }
 
 /* ==========================================================================
    Rank badges
    ========================================================================== */
 .ofr-badge {
   display: inline-block;
+  flex: none;
   margin-left: 6px;
   padding: 0 5px;
   border: var(--ofr-badge-border) solid currentColor;
@@ -62,124 +277,138 @@
 }
 
 .ofr-badge[data-ofr-kind="percentile"] { color: var(--ofr-good); }
-.ofr-badge[data-ofr-kind="winrate"] { color: var(--ofr-low); }
+.ofr-badge[data-ofr-kind="winrate"] { color: var(--ofr-low); border-style: dotted; font-weight: var(--ofr-fw-semibold, 600); }
 
-/* Not a rank but a reason: why this name could not be looked up. Muted and
-   dashed so it never reads as a score. */
-.ofr-badge[data-ofr-kind="missing"] {
-  border-style: dashed;
-  font-weight: 400;
-  opacity: 0.6;
-  color: var(--ofr-muted);
-}
+/* Not a rank but a reason: why this name could not be looked up. Dashed and
+   unfilled so it never reads as a score, but at full opacity so it is legible. */
+.ofr-badge[data-ofr-kind="missing"] { opacity: 1; color: var(--ofr-text-dim); font-weight: var(--ofr-fw-medium, 500);
+  background: transparent; border: 1px dashed color-mix(in srgb, currentColor 55%, transparent); }
+html[data-ofr-theme="contrast"] .ofr-badge[data-ofr-kind="missing"] { border-width: 2px; color: var(--ofr-text); }
 
-/* Percentile bands, calibrated in content.js against real lobby data. */
-.ofr-badge[data-ofr-band="elite"] { color: var(--ofr-elite); }
-.ofr-badge[data-ofr-band="strong"] { color: var(--ofr-strong); }
-.ofr-badge[data-ofr-band="good"] { color: var(--ofr-good); }
-.ofr-badge[data-ofr-band="average"] { color: var(--ofr-average); }
-.ofr-badge[data-ofr-band="low"] { color: var(--ofr-low); }
+/* Waiting for the lookup. */
+.ofr-badge[data-ofr-kind="pending"] { color: var(--ofr-text-dim); border-style: dashed; animation: ofr-pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .ofr-badge[data-ofr-kind="pending"] { animation: none; } }
+
+/* Percentile bands, calibrated in content.js against real lobby data. The band
+   colour is also kept in --ofr-band-c, for the filled threat badge. */
+.ofr-badge[data-ofr-band="elite"] { color: var(--ofr-elite); --ofr-band-c: var(--ofr-elite); }
+.ofr-badge[data-ofr-band="strong"] { color: var(--ofr-strong); --ofr-band-c: var(--ofr-strong); }
+.ofr-badge[data-ofr-band="good"] { color: var(--ofr-good); --ofr-band-c: var(--ofr-good); }
+.ofr-badge[data-ofr-band="average"] { color: var(--ofr-average); --ofr-band-c: var(--ofr-average); }
+.ofr-badge[data-ofr-band="low"] { color: var(--ofr-low); --ofr-band-c: var(--ofr-low); }
+
+/* "Top 1% │ map 0.5%": the map rank is its own segment. */
+.ofr-badge-seg { margin-left: 0.35em; padding-left: 0.35em;
+  border-left: 1px solid color-mix(in srgb, currentColor 40%, transparent); font-weight: var(--ofr-fw-semibold, 600); }
 
 .ofr-badge[data-ofr-profile] { cursor: pointer; }
-.ofr-badge[data-ofr-profile]:hover {
-  filter: brightness(1.35);
-  text-decoration: underline;
-}
+.ofr-badge[data-ofr-profile]:hover { filter: none; text-decoration: none;
+  background: color-mix(in srgb, currentColor 14%, var(--ofr-badge-bg)); }
 
-/* Watchlist: starred players stand out in every list. */
-.ofr-badge[data-ofr-watched="true"] {
-  color: var(--ofr-accent) !important;
-  border-color: var(--ofr-accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ofr-accent) 40%, transparent);
-}
+/* Watchlist: starred players keep their band colour, with an accent ring and
+   the theme's star. */
+.ofr-badge[data-ofr-watched="true"] { outline: 1px solid var(--ofr-accent); outline-offset: 1px; }
+.ofr-badge[data-ofr-watched="true"]::before { content: var(--ofr-star, "★"); margin-right: 0.3em; color: var(--ofr-accent-ink, var(--ofr-accent)); }
 
-/* The strongest one or two players in the room. */
-.ofr-threat {
-  outline: 1px solid var(--ofr-threat);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
+/* The strongest one or two players in the room: their badge is filled with its
+   own band colour. */
+.ofr-badge.ofr-threat { background: var(--ofr-band-c, var(--ofr-threat)); border-color: transparent;
+  color: var(--ofr-on-band, #0b0d12); box-shadow: none; }
+.ofr-badge.ofr-threat .ofr-badge-seg { border-left-color: color-mix(in srgb, currentColor 35%, transparent); }
+.ofr-badge.ofr-threat[data-ofr-watched="true"]::before { color: inherit; }
+.ofr-badge.ofr-threat[data-ofr-profile]:hover { background: var(--ofr-band-c, var(--ofr-threat)); }
 
 /* ==========================================================================
-   Lobby summary line
+   Lobby summary line (the element also carries .ofr-card)
    ========================================================================== */
 .ofr-summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--ofr-space-4, 8px);
+  row-gap: var(--ofr-space-2, 4px);
   margin: 4px 0;
-  padding: 3px 7px;
-  border: 1px solid var(--ofr-panel-border);
-  border-radius: calc(var(--ofr-panel-radius) - 3px);
-  background: var(--ofr-panel-soft);
+  padding: 3px 3px 3px 8px;
   color: var(--ofr-summary-text);
   font-family: var(--ofr-ui-font);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: normal;
+  zoom: clamp(0.9, var(--ofr-scale), 1.2);
 }
 
-.ofr-summary .ofr-summary-text { flex: 1; }
+.ofr-summary .ofr-summary-text { flex: 1 1 180px; }
+.ofr-summary .ofr-summary-label { margin: 0; }
+.ofr-summary b[data-ofr-band] { font-weight: var(--ofr-fw-heavy, 800); }
+.ofr-summary b[data-ofr-band="elite"] { color: var(--ofr-elite); }
+.ofr-summary b[data-ofr-band="strong"] { color: var(--ofr-strong); }
+.ofr-summary b[data-ofr-band="good"] { color: var(--ofr-good); }
+.ofr-summary b[data-ofr-band="average"] { color: var(--ofr-average); }
+.ofr-summary b[data-ofr-band="low"] { color: var(--ofr-low); }
+.ofr-copy { min-width: 7.5em; }
 
-.ofr-copy {
-  padding: 1px 7px;
-  border: 1px solid var(--ofr-panel-border);
-  border-radius: var(--ofr-badge-radius);
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-text);
-  font-size: 10px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.ofr-copy:hover { background: var(--ofr-btn-hover); }
+/* Per-team line, under each team's header. */
+.ofr-summary.ofr-team-avg { display: inline-flex; gap: var(--ofr-space-3, 6px); width: auto; margin: 2px 0 4px; padding: 0;
+  border: 0; background: none; color: var(--ofr-text-dim); font-size: var(--ofr-fs-xs, 11px); }
+.ofr-team-edge { height: 16px; padding: 0 6px; }
 
 /* ==========================================================================
-   Map preview (lobby) and the waiting screen's own thumbnail
+   Map preview (lobby) and the waiting screen's own thumbnail. The preview also
+   carries .ofr-card.
    ========================================================================== */
 .ofr-map-preview {
   position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ofr-space-5, 12px);
   margin: 0 0 8px;
-  border: 1px solid var(--ofr-panel-border);
-  border-radius: var(--ofr-panel-radius);
-  background: var(--ofr-panel-soft);
+  padding: var(--ofr-space-3, 6px);
   overflow: hidden;
   cursor: zoom-in;
+  transition: border-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
 }
+.ofr-map-preview:is(:hover, :focus-visible) { border-color: var(--ofr-average); }
 
 .ofr-map-preview img {
   display: block;
-  width: 100%;
-  max-height: 190px;
+  flex: 1 1 200px;
+  width: auto;
+  max-width: 280px;
+  max-height: 140px;
   object-fit: contain;
+  border-radius: var(--ofr-radius-inner, 6px);
   background: var(--ofr-stage-bg);
 }
 
 .ofr-map-preview .ofr-map-meta {
-  padding: 4px 7px;
-  color: var(--ofr-summary-text);
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 0 34px 0 0;
   font-family: var(--ofr-ui-font);
-  font-size: 11px;
-  font-weight: 600;
 }
+.ofr-map-name { overflow: hidden; color: var(--ofr-text); font: var(--ofr-fw-bold, 700) 14px/1.2 var(--ofr-ui-font); text-overflow: ellipsis; }
+.ofr-map-sub { margin-top: 2px; color: var(--ofr-text-dim); font-size: var(--ofr-fs-xs, 11px); font-weight: var(--ofr-fw-regular, 400); }
 
 .ofr-map-preview .ofr-map-zoom {
   position: absolute;
   top: 6px;
   right: 6px;
   padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: var(--ofr-radius-control, 6px);
+  background: color-mix(in srgb, var(--ofr-panel-bg) 88%, transparent);
   color: var(--ofr-text);
-  font-size: 10px;
-  font-weight: 700;
+  font: var(--ofr-fw-bold, 700) 11px/1.3 var(--ofr-ui-font);
   pointer-events: none;
 }
+.ofr-map-zoom span { display: none; }
+.ofr-map-preview:is(:hover, :focus-visible) .ofr-map-zoom span { display: inline; }
 
 join-lobby-modal img[src*="/thumbnail."] {
   cursor: zoom-in;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out), box-shadow var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
 }
 
 join-lobby-modal img[src*="/thumbnail."]:hover {
@@ -193,11 +422,12 @@ join-lobby-modal img[src*="/thumbnail."]:hover {
 .ofr-viewer {
   position: fixed;
   inset: 0;
-  z-index: 2147483600;
+  z-index: var(--ofr-z-viewer, 2147483610);
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--ofr-stage-bg) 92%, transparent);
   font-family: var(--ofr-ui-font);
+  animation: ofr-fade var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out);
 }
 
 .ofr-viewer-bar {
@@ -212,7 +442,7 @@ join-lobby-modal img[src*="/thumbnail."]:hover {
   font-weight: 700;
 }
 
-.ofr-viewer-title { font-size: 14px; }
+.ofr-viewer-title { min-width: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 
 .ofr-viewer-hint {
   margin-left: auto;
@@ -220,25 +450,20 @@ join-lobby-modal img[src*="/thumbnail."]:hover {
   font-size: 11px;
   color: var(--ofr-text-dim);
 }
-
-.ofr-viewer-btn {
-  min-width: 30px;
-  padding: 3px 9px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: calc(var(--ofr-badge-radius) + 1px);
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-text);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
+@media (max-width: 560px) {
+  .ofr-viewer-hint { display: none; }
+  .ofr-viewer-bar .ofr-viewer-btn[data-act="out"] { margin-left: auto; }
 }
 
-.ofr-viewer-btn:hover { background: var(--ofr-btn-hover); }
+.ofr-viewer-btn { flex: none; min-width: var(--ofr-ctl-h-md, 30px); }
+.ofr-viewer-btn:is([data-act="in"], [data-act="out"]) { font-size: 17px; line-height: 1; }
+.ofr-viewer-btn[data-act="close"] { margin-left: var(--ofr-space-4, 8px); }
 
 .ofr-viewer-stage {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  background: var(--ofr-stage-bg);
   cursor: grab;
   touch-action: none;
 }
@@ -255,23 +480,19 @@ join-lobby-modal img[src*="/thumbnail."]:hover {
 }
 
 /* ==========================================================================
-   Toasts and the post-game recap
+   Toasts: one stack at the bottom centre (oldest at the bottom, at most 3).
    ========================================================================== */
-.ofr-toast {
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  z-index: 2147483600;
-  padding: 8px 14px;
-  border: 1px solid color-mix(in srgb, var(--ofr-accent) 60%, transparent);
-  border-radius: var(--ofr-panel-radius);
-  background: var(--ofr-panel-bg);
-  color: var(--ofr-accent);
-  font: 600 13px/1.3 var(--ofr-ui-font);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
-}
+.ofr-toasts { position: fixed; left: 50%; bottom: 24px; z-index: var(--ofr-z-toast, 2147483645); display: flex;
+  flex-direction: column-reverse; align-items: center; gap: var(--ofr-space-3, 6px); transform: translateX(-50%);
+  pointer-events: none; zoom: var(--ofr-scale); }
+.ofr-toast { max-width: min(420px, calc(100vw - 32px)); padding: 8px 14px 8px 12px; border: 1px solid var(--ofr-panel-border);
+  border-left: 3px solid var(--ofr-accent); border-radius: var(--ofr-radius-inner, 6px); background: var(--ofr-float-bg, var(--ofr-panel-bg));
+  color: var(--ofr-text); font: var(--ofr-fw-semibold, 600) var(--ofr-fs-md, 13px)/1.35 var(--ofr-ui-font);
+  box-shadow: var(--ofr-shadow-2, 0 6px 20px rgba(0,0,0,.45)); animation: ofr-rise var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out);
+  transition: opacity var(--ofr-dur-2, 160ms) var(--ofr-ease-in, ease-in), transform var(--ofr-dur-2, 160ms) var(--ofr-ease-in, ease-in); }
+.ofr-toast[data-tone="ok"] { border-left-color: var(--ofr-good); }
+.ofr-toast[data-tone="error"] { border-left-color: var(--ofr-elite); }
+.ofr-toast[data-out="true"] { opacity: 0; transform: translateY(4px); }
 
 /* the recap panel is styled at the end of this file */
 
@@ -302,6 +523,10 @@ html[data-ofr-theme="neon"] {
   --ofr-btn-hover: #24115a;
   --ofr-btn-border: #3b2a7a;
   --ofr-stage-bg: #05000f;
+  --ofr-on-accent: #05000f;
+  --ofr-on-band: #05000f;
+  --ofr-float-bg: rgb(8 2 24);
+  --ofr-star: "✦";
 }
 
 /* Tactical: olive command-console look, monospace, square corners. */
@@ -330,19 +555,27 @@ html[data-ofr-theme="tactical"] {
   --ofr-btn-border: #4a5a35;
   --ofr-stage-bg: #10140b;
   --ofr-ui-font: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --ofr-on-accent: #10140b;
+  --ofr-on-band: #10140b;
+  --ofr-float-bg: rgb(22 27 17);
+  --ofr-star: "◆";
+  --ofr-radius-control: 0px;
+  --ofr-radius-float: 2px;
+  --ofr-radius-switch: 2px;
 }
 
 /* Pastel: soft filled chips, rounded pills. */
 html[data-ofr-theme="pastel"] {
   --ofr-elite: #b4235a;
   --ofr-strong: #9a5b00;
-  --ofr-good: #2f7d32;
+  --ofr-good: #2b7630;
   --ofr-average: #1f6fa8;
   --ofr-low: #5f6570;
   --ofr-muted: #7a808a;
   --ofr-accent: #c26b00;
   --ofr-threat: #e38fb3;
-  --ofr-badge-bg: #fdf1f6;
+  /* the fill follows each badge's band (currentColor resolves where it is used) */
+  --ofr-badge-bg: color-mix(in srgb, currentColor 11%, #ffffff);
   --ofr-badge-radius: 999px;
   --ofr-badge-border: 0;
   --ofr-panel-bg: rgba(252, 248, 255, 0.97);
@@ -350,12 +583,23 @@ html[data-ofr-theme="pastel"] {
   --ofr-panel-border: rgba(160, 130, 200, 0.35);
   --ofr-panel-radius: 12px;
   --ofr-text: #3b3350;
-  --ofr-text-dim: #7b7390;
+  --ofr-text-dim: #6a6280;
   --ofr-summary-text: #4a4262;
   --ofr-btn-bg: #efe6fb;
   --ofr-btn-hover: #e4d6f8;
   --ofr-btn-border: #cdbbe8;
   --ofr-stage-bg: #f3eefb;
+  --ofr-accent-ink: #9a5200;
+  --ofr-on-accent: #1a1000;
+  --ofr-on-band: #ffffff;
+  --ofr-float-bg: rgb(252 248 255);
+  --ofr-scrim: rgba(59, 51, 80, 0.42);
+  --ofr-star: "💛";
+  --ofr-shadow-1: 0 1px 2px rgba(59, 51, 80, 0.12);
+  --ofr-shadow-2: 0 6px 20px rgba(59, 51, 80, 0.16);
+  --ofr-shadow-3: 0 12px 32px rgba(59, 51, 80, 0.2);
+  --ofr-shadow-4: 0 20px 60px rgba(59, 51, 80, 0.28);
+  --ofr-shadow-tag: 0 2px 6px rgba(59, 51, 80, 0.22);
 }
 
 /* Mono: greyscale; rank reads from brightness and weight alone. */
@@ -364,7 +608,7 @@ html[data-ofr-theme="mono"] {
   --ofr-strong: #e2e2e2;
   --ofr-good: #bdbdbd;
   --ofr-average: #969696;
-  --ofr-low: #6e6e6e;
+  --ofr-low: #7d7d7d;
   --ofr-muted: #5a5a5a;
   --ofr-loss: var(--ofr-low); /* darker than a win: Mono ranks by brightness */
   --ofr-accent: #ffffff;
@@ -383,6 +627,10 @@ html[data-ofr-theme="mono"] {
   --ofr-btn-hover: #2a2a2a;
   --ofr-btn-border: #3a3a3a;
   --ofr-stage-bg: #080808;
+  --ofr-on-accent: #000000;
+  --ofr-on-band: #000000;
+  --ofr-float-bg: rgb(12 12 12);
+  --ofr-star: "*";
 }
 
 /* High contrast: colour-blind-safe (blue/orange axis), bold, thick borders,
@@ -411,23 +659,128 @@ html[data-ofr-theme="contrast"] {
   --ofr-btn-hover: #333333;
   --ofr-btn-border: #ffffff;
   --ofr-stage-bg: #000000;
+  --ofr-on-accent: #000000;
+  --ofr-on-band: #000000;
+  --ofr-float-bg: #000000;
+  --ofr-star: "★";
+  --ofr-focus-width: 3px;
+}
+
+/* Midnight: deep navy, a cool cyan accent; Neon's calm sibling (no glow). */
+html[data-ofr-theme="midnight"] {
+  --ofr-elite: #ff8fab;
+  --ofr-strong: #f7c75e;
+  --ofr-good: #6ee7b7;
+  --ofr-average: #7aa7ff;
+  --ofr-low: #a3aab8;
+  --ofr-muted: #52617f;
+  --ofr-loss: #d9788d; /* a dimmer rose than elite */
+  --ofr-accent: #22d3ee;
+  --ofr-threat: #ff8fab;
+  --ofr-badge-bg: rgba(8, 14, 30, 0.7);
+  --ofr-badge-radius: 4px;
+  --ofr-panel-bg: rgba(12, 20, 38, 0.96);
+  --ofr-panel-soft: rgba(26, 40, 68, 0.5);
+  --ofr-panel-border: rgba(125, 211, 252, 0.18);
+  --ofr-panel-radius: 10px;
+  --ofr-text: #e3eaf7;
+  --ofr-text-dim: #97a6c4;
+  --ofr-summary-text: #c5d2ea;
+  --ofr-btn-bg: #15213b;
+  --ofr-btn-hover: #1e2d4d;
+  --ofr-btn-border: #2d4066;
+  --ofr-stage-bg: #080e1c;
+  --ofr-on-accent: #03141b;
+  --ofr-on-band: #080e1c;
+  --ofr-float-bg: rgb(12 20 38);
+  --ofr-scrim: rgba(3, 8, 20, 0.62);
+  --ofr-star: "★";
+  --ofr-shadow-1: 0 1px 2px rgba(2, 6, 16, 0.35);
+  --ofr-shadow-2: 0 6px 20px rgba(2, 6, 16, 0.5);
+  --ofr-shadow-3: 0 12px 32px rgba(2, 6, 16, 0.55);
+  --ofr-shadow-4: 0 20px 60px rgba(2, 6, 16, 0.65);
+  --ofr-shadow-tag: 0 2px 6px rgba(2, 6, 16, 0.5);
+}
+
+/* Ember: warm charcoal, orange and amber, like coals. */
+html[data-ofr-theme="ember"] {
+  --ofr-elite: #ff6f91;
+  --ofr-strong: #ffc247;
+  --ofr-good: #a8d672;
+  --ofr-average: #6fc3d1;
+  --ofr-low: #aba198;
+  --ofr-muted: #6e625a;
+  --ofr-loss: #d9735f; /* brick: warmer and dimmer than elite */
+  --ofr-accent: #fb923c;
+  --ofr-threat: #ff6f91;
+  --ofr-badge-bg: rgba(22, 17, 14, 0.75);
+  --ofr-badge-radius: 3px;
+  --ofr-panel-bg: rgba(29, 23, 20, 0.96);
+  --ofr-panel-soft: rgba(52, 40, 33, 0.5);
+  --ofr-panel-border: rgba(251, 146, 60, 0.24);
+  --ofr-panel-radius: 6px;
+  --ofr-text: #f4ebe2;
+  --ofr-text-dim: #b9a898;
+  --ofr-summary-text: #e3d3c3;
+  --ofr-btn-bg: #2b221d;
+  --ofr-btn-hover: #382c25;
+  --ofr-btn-border: #4f3e33;
+  --ofr-stage-bg: #140f0c;
+  --ofr-on-accent: #1c0c00;
+  --ofr-on-band: #140f0c;
+  --ofr-float-bg: rgb(29 23 20);
+  --ofr-scrim: rgba(12, 8, 5, 0.62);
+  --ofr-star: "★";
+  --ofr-shadow-1: 0 1px 2px rgba(10, 5, 2, 0.35);
+  --ofr-shadow-2: 0 6px 20px rgba(10, 5, 2, 0.5);
+  --ofr-shadow-3: 0 12px 32px rgba(10, 5, 2, 0.55);
+  --ofr-shadow-4: 0 20px 60px rgba(10, 5, 2, 0.65);
+  --ofr-shadow-tag: 0 2px 6px rgba(10, 5, 2, 0.5);
+}
+
+/* Daylight: crisp white and neutral grey, one indigo accent; quieter than Pastel. */
+html[data-ofr-theme="daylight"] {
+  --ofr-elite: #be123c;
+  --ofr-strong: #a34a00;
+  --ofr-good: #137537;
+  --ofr-average: #0369a1;
+  --ofr-low: #62666e;
+  --ofr-muted: #9ca3af;
+  --ofr-loss: #8c4a5a; /* a dusty wine, darker and greyer than elite */
+  --ofr-accent: #4f46e5;
+  --ofr-threat: #be123c;
+  /* the fill follows each badge's band (currentColor resolves where it is used) */
+  --ofr-badge-bg: color-mix(in srgb, currentColor 8%, #ffffff);
+  --ofr-badge-radius: 4px;
+  --ofr-panel-bg: rgba(255, 255, 255, 0.98);
+  --ofr-panel-soft: rgba(241, 243, 246, 0.92);
+  --ofr-panel-border: rgba(17, 24, 39, 0.14);
+  --ofr-panel-radius: 8px;
+  --ofr-text: #111827;
+  --ofr-text-dim: #4b5563;
+  --ofr-summary-text: #1f2937;
+  --ofr-btn-bg: #f3f4f6;
+  --ofr-btn-hover: #e5e7eb;
+  --ofr-btn-border: #d1d5db;
+  --ofr-stage-bg: #eef0f3;
+  --ofr-accent-ink: #4338ca;
+  --ofr-on-accent: #ffffff;
+  --ofr-on-band: #ffffff;
+  --ofr-float-bg: rgb(255 255 255);
+  --ofr-scrim: rgba(17, 24, 39, 0.4);
+  --ofr-star: "★";
+  --ofr-shadow-1: 0 1px 2px rgba(17, 24, 39, 0.08);
+  --ofr-shadow-2: 0 6px 20px rgba(17, 24, 39, 0.12);
+  --ofr-shadow-3: 0 12px 32px rgba(17, 24, 39, 0.16);
+  --ofr-shadow-4: 0 20px 60px rgba(17, 24, 39, 0.22);
+  --ofr-shadow-tag: 0 2px 6px rgba(17, 24, 39, 0.18);
 }
 
 /* Page themes (restyling OpenFront itself) are generated: see
    src/page-themes.css and tools/gen-page-themes.mjs. */
 
-/* Clan chips on the lobby summary line. */
-.ofr-clan-chip {
-  padding: 1px 7px;
-  border: 1px solid var(--ofr-panel-border);
-  border-radius: 999px;
-  background: var(--ofr-btn-bg);
-  color: var(--ofr-summary-text);
-  font: 700 10px var(--ofr-ui-font);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.ofr-clan-chip:hover { background: var(--ofr-btn-hover); color: var(--ofr-accent); }
+/* Clan chips on the lobby summary line: .ofr-chip buttons (see above). */
+.ofr-clan-chip { flex: none; }
 
 /* Streamer mode: your own name in the lobby list, unreadable on a stream. */
 .ofr-streamer { filter: blur(6px); user-select: none; }
@@ -442,19 +795,20 @@ html[data-ofr-size="small"] { --ofr-scale: 0.85; }
 html[data-ofr-size="large"] { --ofr-scale: 1.2; }
 html[data-ofr-size="xlarge"] { --ofr-scale: 1.4; }
 
-.ofr-home, .ofr-recap, .ofr-summary, .ofr-map-preview, .ofr-toast,
+.ofr-home, .ofr-recap, .ofr-map-preview,
 .ofr-dash-body, .ofr-dash-bar, .ofr-viewer-bar, .ofr-viewer-status {
   zoom: var(--ofr-scale);
 }
-.ofr-badge { zoom: var(--ofr-scale); }
+/* A badge annotates a name: never larger than 1.2x it, never below 10 px. */
+.ofr-badge { zoom: clamp(1, var(--ofr-scale), 1.2); }
 /* ...but not twice: a badge inside one of the containers above is already scaled */
 .ofr-home .ofr-badge, .ofr-recap .ofr-badge, .ofr-summary .ofr-badge, .ofr-dash-body .ofr-badge { zoom: 1; }
 
 /* --- Compact: one-line card, tighter everything ------------------------------ */
-html[data-ofr-layout="compact"] .ofr-badge { font-size: 9px; line-height: 13px; padding: 0 4px; margin-left: 4px; }
-html[data-ofr-layout="compact"] .ofr-summary { padding: 2px 6px; font-size: 10px; margin: 2px 0; }
-html[data-ofr-layout="compact"] .ofr-map-preview img { max-height: 110px; }
-html[data-ofr-layout="compact"] .ofr-map-preview .ofr-map-meta { padding: 2px 6px; font-size: 10px; }
+html[data-ofr-layout="compact"] .ofr-badge { font-size: 10px; line-height: 14px; padding: 0 4px; margin-left: 4px; }
+html[data-ofr-layout="compact"] .ofr-summary:not(.ofr-team-avg) { padding: 2px 2px 2px 6px; font-size: 10px; margin: 2px 0; }
+html[data-ofr-layout="compact"] .ofr-map-preview img { max-height: 90px; }
+html[data-ofr-layout="compact"] .ofr-map-preview .ofr-map-name { font-size: 13px; }
 html[data-ofr-layout="compact"] .ofr-recap { width: 320px; font-size: 12px; }
 html[data-ofr-layout="compact"] .ofr-recap-big { font-size: 22px; }
 html[data-ofr-layout="compact"] .ofr-recap-chip-value { font-size: 14px; }
@@ -471,7 +825,7 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
    ========================================================================== */
 .ofr-chart { display: block; width: 100%; height: auto; overflow: visible; }
 .ofr-chart-grid { stroke: var(--ofr-panel-border); stroke-width: 1; }
-.ofr-chart-label { fill: var(--ofr-text-dim); font: 9px var(--ofr-ui-font); }
+.ofr-chart-label { fill: var(--ofr-text-dim); font: 10px var(--ofr-ui-font); }
 .ofr-chart-baseline { stroke: var(--ofr-text-dim); stroke-width: 1; stroke-dasharray: 3 3; }
 .ofr-chart-line { fill: none; stroke: var(--ofr-average); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
 .ofr-chart-line.accent { stroke: var(--ofr-accent); }
@@ -486,9 +840,12 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
 .ofr-chart-col.accent { fill: var(--ofr-accent); }
 .ofr-chart-marker line { stroke: var(--ofr-text-dim); stroke-width: 1; stroke-dasharray: 2 2; }
 .ofr-chart-marker circle { fill: var(--ofr-text); stroke: var(--ofr-stage-bg); stroke-width: 1.5; }
-.ofr-chart-marker text { fill: var(--ofr-text); font: 600 9px var(--ofr-ui-font); }
+/* a halo in the panel colour, so a label never collides with the line under it */
+.ofr-chart-marker text { fill: var(--ofr-text); font: 600 10px var(--ofr-ui-font);
+  paint-order: stroke; stroke: var(--ofr-float-bg, var(--ofr-panel-bg)); stroke-width: 3px; stroke-linejoin: round; }
 .ofr-chart-marker[data-kind="me"] line { stroke: var(--ofr-accent); stroke-dasharray: none; stroke-width: 1.5; }
-.ofr-chart-marker[data-kind="me"] circle, .ofr-chart-marker[data-kind="me"] text { fill: var(--ofr-accent); }
+.ofr-chart-marker[data-kind="me"] circle { fill: var(--ofr-accent); stroke: var(--ofr-float-bg, var(--ofr-panel-bg)); stroke-width: 2; }
+.ofr-chart-marker[data-kind="me"] text { fill: var(--ofr-accent-ink, var(--ofr-accent)); }
 .ofr-chart-marker[data-kind="winner"] circle, .ofr-chart-marker[data-kind="winner"] text { fill: var(--ofr-good); }
 
 .ofr-chart-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 4px 0 2px; color: var(--ofr-text-dim); font-size: 10px; }
@@ -507,6 +864,9 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
 .ofr-chart-key[data-slot="4"]::before, .ofr-stack-seg[data-slot="4"] { background: var(--ofr-strong); }
 .ofr-chart-key[data-slot="5"]::before, .ofr-stack-seg[data-slot="5"] { background: var(--ofr-low); }
 .ofr-chart-key[data-slot="6"]::before, .ofr-stack-seg[data-slot="6"] { background: var(--ofr-accent); }
+/* a darker strong: apart from the accent ("you"), which equals or nearly equals
+   --ofr-strong in classic, tactical and high contrast */
+.ofr-chart-key[data-slot="7"]::before, .ofr-stack-seg[data-slot="7"] { background: color-mix(in srgb, var(--ofr-strong) 58%, var(--ofr-stage-bg)); }
 
 .ofr-cmp { display: grid; gap: 7px; }
 .ofr-cmp-row { display: grid; gap: 2px; }
@@ -515,10 +875,10 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
 .ofr-cmp-note { color: var(--ofr-text-dim); }
 /* bar area | value: the value has its own fixed column, so every bar in a row
    is a share of the same length */
-.ofr-cmp-track { display: grid; grid-template-columns: minmax(0, 1fr) 46px; align-items: center; gap: 6px; height: 9px; }
+.ofr-cmp-track { display: grid; grid-template-columns: minmax(0, 1fr) 46px; align-items: center; gap: 6px; height: 10px; }
 .ofr-cmp-area { display: block; min-width: 0; }
 .ofr-cmp-fill { display: block; height: 7px; min-width: 2px; border-radius: 2px; background: var(--ofr-muted); }
-.ofr-cmp-value { color: var(--ofr-text-dim); font-size: 9.5px; line-height: 1; white-space: nowrap; }
+.ofr-cmp-value { color: var(--ofr-text-dim); font-size: 10px; line-height: 1; white-space: nowrap; }
 .ofr-chart-dot { fill: var(--ofr-average); }
 .ofr-chart-dot.accent { fill: var(--ofr-accent); }
 .ofr-chart-dot.good { fill: var(--ofr-good); }
@@ -527,7 +887,7 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
 .ofr-stack-seg { display: block; height: 100%; min-width: 1px; }
 
 .ofr-bands { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; align-items: end; }
-.ofr-bands-col { display: grid; gap: 2px; justify-items: center; font-size: 9.5px; color: var(--ofr-text-dim); }
+.ofr-bands-col { display: grid; gap: 2px; justify-items: center; font-size: 10px; color: var(--ofr-text-dim); }
 .ofr-bands-stem { display: flex; align-items: flex-end; width: 100%; height: 44px; border-bottom: 1px solid var(--ofr-panel-border); }
 .ofr-bands-fill { display: block; width: 100%; border-radius: 2px 2px 0 0; background: var(--ofr-muted); }
 .ofr-bands-fill[data-ofr-band="elite"] { background: var(--ofr-elite); }
@@ -535,121 +895,98 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
 .ofr-bands-fill[data-ofr-band="good"] { background: var(--ofr-good); }
 .ofr-bands-fill[data-ofr-band="average"] { background: var(--ofr-average); }
 .ofr-bands-fill[data-ofr-band="low"] { background: var(--ofr-low); }
-.ofr-bands-col[data-mine="true"] { color: var(--ofr-accent); font-weight: 700; }
+.ofr-bands-col[data-mine="true"] { color: var(--ofr-accent-ink, var(--ofr-accent)); font-weight: 700; }
 .ofr-bands-col[data-mine="true"] .ofr-bands-stem { border-bottom: 2px solid var(--ofr-accent); }
 
 /* ==========================================================================
    Post-game recap (recap.js). Fixed bottom-right; folds to its title bar when
-   it would cover the game's own end-of-game dialog.
+   it would cover the game's own end-of-game dialog. The panel also carries
+   .ofr-float (opaque background, border, radius, shadow).
    ========================================================================== */
 .ofr-recap {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 2147483600;
+  z-index: var(--ofr-z-float, 2147483600);
   display: flex;
   flex-direction: column;
   width: 380px;
   max-width: calc((100vw - 32px) / var(--ofr-scale));
   max-height: calc(min(640px, 100vh - 32px) / var(--ofr-scale));
   overflow: hidden;
-  border: 1px solid var(--ofr-panel-border);
-  border-radius: calc(var(--ofr-panel-radius) + 2px);
-  background: var(--ofr-panel-bg);
   color: var(--ofr-text);
   font: 13px/1.45 var(--ofr-ui-font);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  animation: ofr-recap-in 160ms ease-out;
+  animation: ofr-rise var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out);
 }
-@keyframes ofr-recap-in { from { opacity: 0; transform: translateY(8px); } }
-@media (prefers-reduced-motion: reduce) { .ofr-recap { animation: none; } }
+/* the result's colour, once: the hero edge and the folded bar both use it */
+.ofr-recap[data-tone="win"] { --ofr-tone: var(--ofr-accent); }
+.ofr-recap[data-tone="good"] { --ofr-tone: var(--ofr-good); }
+.ofr-recap[data-tone="loss"] { --ofr-tone: var(--ofr-loss); }
 
-.ofr-recap button { font: inherit; color: inherit; cursor: pointer; }
+:where(.ofr-recap, .ofr-chat) button { font: inherit; color: inherit; cursor: pointer; }
 .ofr-recap h4 {
-  margin: 0 0 4px;
+  margin: 0 0 var(--ofr-space-3, 6px);
   color: var(--ofr-text-dim);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font: var(--ofr-fw-bold, 700) var(--ofr-fs-label, 10.5px)/var(--ofr-lh-snug, 1.3) var(--ofr-ui-font);
+  letter-spacing: var(--ofr-tracking-label, 0.07em);
   text-transform: uppercase;
 }
 
 .ofr-recap-head {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 7px 8px 7px 12px;
+  gap: 2px;
+  padding: 5px 6px 5px 12px;
   border-bottom: 1px solid var(--ofr-panel-border);
 }
 .ofr-recap-headtext { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 8px; }
 .ofr-recap-title { font-weight: 700; white-space: nowrap; }
 .ofr-recap-meta { overflow: hidden; color: var(--ofr-text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.ofr-recap-head button {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  color: var(--ofr-text-dim);
-  font-size: 14px;
-  line-height: 1;
-}
-.ofr-recap-head button:hover { background: var(--ofr-btn-hover); color: var(--ofr-text); }
 
 /* result banner: the coloured edge says how it went before any text is read */
 .ofr-recap-hero {
   padding: 10px 12px 9px;
-  border-left: 4px solid var(--ofr-average);
+  border-left: 4px solid var(--ofr-tone, var(--ofr-average));
   background: var(--ofr-panel-soft);
 }
 .ofr-recap-hero:empty { display: none; }
-.ofr-recap[data-tone="win"] .ofr-recap-hero { border-left-color: var(--ofr-accent); }
-.ofr-recap[data-tone="good"] .ofr-recap-hero { border-left-color: var(--ofr-good); }
-.ofr-recap[data-tone="loss"] .ofr-recap-hero { border-left-color: var(--ofr-elite); }
 .ofr-recap-result { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .ofr-recap-big { font-size: 26px; font-weight: 800; line-height: 1.1; }
-.ofr-recap[data-tone="win"] .ofr-recap-big { color: var(--ofr-accent); }
+.ofr-recap[data-tone="win"] .ofr-recap-big { color: var(--ofr-accent-ink, var(--ofr-accent)); }
 .ofr-recap-of { color: var(--ofr-text-dim); font-size: 14px; font-weight: 600; }
 .ofr-recap-who { display: inline-flex; align-items: center; margin-left: auto; font-weight: 600; }
 .ofr-recap-who .ofr-badge { cursor: default; }
 .ofr-recap-kicker { margin-top: 2px; color: var(--ofr-text-dim); font-size: 12px; }
 
-.ofr-recap-tabs { display: flex; border-bottom: 1px solid var(--ofr-panel-border); }
+.ofr-recap-tabs { padding: 0 var(--ofr-space-2, 4px); }
 .ofr-recap-tabs:empty { display: none; }
-.ofr-recap-tabs button {
-  flex: 1;
-  padding: 6px 2px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--ofr-text-dim);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-.ofr-recap-tabs button:hover { color: var(--ofr-text); background: var(--ofr-panel-soft); }
-.ofr-recap-tabs button[data-on="true"] { border-bottom-color: var(--ofr-accent); color: var(--ofr-text); }
+/* five tabs in 380 px: each takes its label's width first, then shares the rest */
+.ofr-recap-tabs .ofr-tab { flex: 1 1 auto; padding-left: 4px; padding-right: 4px; }
 
 .ofr-recap-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 12px; scrollbar-width: thin; }
 .ofr-recap-pane { display: grid; gap: 10px; }
 .ofr-recap-note { margin: 0; color: var(--ofr-text-dim); font-size: 11px; }
-.ofr-recap-wait { padding: 6px 0; font-size: 12.5px; color: var(--ofr-text); }
 
-.ofr-recap-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 6px; }
+/* room for icon + value ("259.4M"): three a row in the 380 px recap, two in the
+   compact one, and four as two pairs rather than three and a straggler */
+.ofr-recap-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 6px; }
+.ofr-recap-chips:has(> :nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ofr-recap-chip {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 1px;
+  min-width: 0;
   padding: 6px 8px;
-  border: 1px solid var(--ofr-panel-border);
-  border-radius: var(--ofr-panel-radius);
-  background: var(--ofr-panel-soft);
+  border-radius: var(--ofr-radius-inner, 6px);
 }
 .ofr-recap-chip[data-top="true"] { border-color: color-mix(in srgb, var(--ofr-accent) 70%, transparent); }
-.ofr-recap-chip-value { font-size: 16px; font-weight: 800; line-height: 1.15; }
+/* a value too long for its chip is cut inside it, never into the next one */
+.ofr-recap-chip-value { overflow: hidden; font-size: 16px; font-weight: 800; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-recap-chip-value .ofr-icon { width: 14px; height: 14px; margin-right: 4px; color: var(--ofr-text-dim); vertical-align: -2px; }
 .ofr-recap-chip-label { color: var(--ofr-text-dim); font-size: 10px; line-height: 1.2; }
-.ofr-recap-chip-rank { color: var(--ofr-text-dim); font-size: 10px; font-weight: 700; }
-.ofr-recap-chip[data-top="true"] .ofr-recap-chip-rank { color: var(--ofr-accent); }
+.ofr-recap-chip-rank { margin-top: auto; padding-top: 3px; color: var(--ofr-text-dim); font-size: 10px; font-weight: 700; }
+.ofr-recap-chip-rank[data-unranked] { color: var(--ofr-text-dim); font-weight: var(--ofr-fw-semibold, 600); }
+.ofr-recap-chip[data-top="true"] .ofr-recap-chip-rank { color: var(--ofr-accent-ink, var(--ofr-accent)); }
 
 .ofr-recap-lines { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
 .ofr-recap-lines li { padding-left: 10px; border-left: 2px solid var(--ofr-track); }
@@ -666,17 +1003,9 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
 .ofr-recap-award-who { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .ofr-recap-award-text { grid-column: 1 / -1; color: var(--ofr-text-dim); font-size: 11px; }
 .ofr-recap-awards li[data-mine="true"] .ofr-recap-award-title,
-.ofr-recap-awards li[data-mine="true"] .ofr-recap-award-who { color: var(--ofr-accent); }
+.ofr-recap-awards li[data-mine="true"] .ofr-recap-award-who { color: var(--ofr-accent-ink, var(--ofr-accent)); }
 
-.ofr-recap-more {
-  justify-self: start;
-  padding: 3px 8px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: var(--ofr-panel-radius);
-  background: var(--ofr-btn-bg);
-  font-size: 11px;
-}
-.ofr-recap-more:hover { background: var(--ofr-btn-hover); }
+.ofr-recap-more { justify-self: start; }
 
 .ofr-recap-chart { display: grid; gap: 2px; }
 .ofr-recap .ofr-stack-bar { background: var(--ofr-track); }
@@ -686,7 +1015,7 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
   position: sticky;
   top: -10px;
   padding: 3px 4px;
-  background: var(--ofr-panel-bg);
+  background: var(--ofr-float-bg, var(--ofr-panel-bg));
   color: var(--ofr-text-dim);
   font-size: 10px;
   font-weight: 700;
@@ -704,38 +1033,32 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
 .ofr-recap-foot:not(:empty) { padding: 7px 12px 0; border-top: 1px solid var(--ofr-panel-border); }
 .ofr-recap-actions { display: flex; gap: 6px; padding: 8px 12px 10px; }
 .ofr-recap-actions:empty { display: none; }
-.ofr-recap-actions button {
-  flex: 1;
-  padding: 5px 6px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: var(--ofr-panel-radius);
-  background: var(--ofr-btn-bg);
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-.ofr-recap-actions button:hover { background: var(--ofr-btn-hover); }
-.ofr-recap-actions button:first-child { border-color: color-mix(in srgb, var(--ofr-accent) 65%, transparent); color: var(--ofr-accent); }
+/* block, not the kit's inline-flex: text-overflow only cuts a block's own text
+   (a centred flex item that overflows is clipped on both sides instead) */
+.ofr-recap-actions > .ofr-btn { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  line-height: calc(var(--ofr-ctl-h-md, 30px) - 2px); text-align: center; }
 
-/* folded: just the title bar, which then carries the headline */
-.ofr-recap[data-min="true"] { width: auto; min-width: 200px; cursor: pointer; }
+/* folded: just the title bar, which then carries the headline and the result's edge */
+.ofr-recap[data-min="true"] { width: auto; min-width: 200px; cursor: pointer;
+  box-shadow: inset 3px 0 0 var(--ofr-tone, var(--ofr-average)), var(--ofr-shadow-2, 0 6px 20px rgba(0,0,0,.45)); }
 .ofr-recap[data-min="true"] > :not(.ofr-recap-head) { display: none; }
 .ofr-recap[data-min="true"] .ofr-recap-head { border-bottom: 0; }
 
 /* ==========================================================================
    Chat (chat.js). Docked on the left edge, folded to a tab by default: the
    recap owns bottom-right, the game's own controls own the bottom-left corner.
+   The panel also carries .ofr-float.
    ========================================================================== */
 .ofr-chat {
   position: fixed;
   left: 0;
   top: 50%;
-  z-index: 2147483590;
+  z-index: var(--ofr-z-chat, 2147483590);
   transform: translateY(-50%);
   color: var(--ofr-text);
   font: 13px/1.4 var(--ofr-ui-font);
   zoom: var(--ofr-scale);
 }
-.ofr-chat button { font: inherit; color: inherit; cursor: pointer; }
 
 .ofr-chat-tab {
   display: block;
@@ -743,28 +1066,26 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
   border: 1px solid var(--ofr-panel-border);
   border-left: 0;
   border-radius: 0 var(--ofr-panel-radius) var(--ofr-panel-radius) 0;
-  background: var(--ofr-panel-bg);
+  background: var(--ofr-float-bg, var(--ofr-panel-bg));
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
   writing-mode: vertical-rl;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--ofr-shadow-2, 0 6px 20px rgba(0, 0, 0, 0.45));
+  transition: background-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
 }
 .ofr-chat-tab:hover { background: var(--ofr-btn-hover); }
-.ofr-chat-tab[data-unread="true"] { border-color: var(--ofr-accent); color: var(--ofr-accent); }
+.ofr-chat-tab[data-unread="true"] { border-color: var(--ofr-accent); color: var(--ofr-accent-ink, var(--ofr-accent)); }
 .ofr-chat[data-open="true"] .ofr-chat-tab { display: none; }
 
 .ofr-chat-panel {
   display: none;
   flex-direction: column;
   width: 300px;
-  height: min(380px, 70vh);
+  height: min(380px, calc(70vh / var(--ofr-scale)));
   margin-left: 8px;
   overflow: hidden;
-  border: 1px solid var(--ofr-panel-border);
-  border-radius: calc(var(--ofr-panel-radius) + 2px);
-  background: var(--ofr-panel-bg);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: ofr-rise var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out);
 }
 .ofr-chat[data-open="true"] .ofr-chat-panel { display: flex; }
 .ofr-chat[data-mode="paused"] .ofr-chat-panel { height: auto; }
@@ -772,18 +1093,17 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
 .ofr-chat-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 6px 6px 10px;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
   border-bottom: 1px solid var(--ofr-panel-border);
 }
 .ofr-chat-title { font-weight: 700; white-space: nowrap; }
 .ofr-chat-status { flex: 1; overflow: hidden; color: var(--ofr-text-dim); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ofr-chat-status[data-ok="true"]::before { content: "● "; color: var(--ofr-good); }
 .ofr-chat-status[data-ok="false"]::before { content: "● "; color: var(--ofr-strong); }
-.ofr-chat-mutes, .ofr-chat-fold { border: 0; border-radius: 4px; background: none; color: var(--ofr-text-dim); }
-.ofr-chat-mutes { padding: 2px 4px; font-size: 10.5px; text-decoration: underline; }
-.ofr-chat-fold { width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; }
-.ofr-chat-mutes:hover, .ofr-chat-fold:hover { background: var(--ofr-btn-hover); color: var(--ofr-text); }
+.ofr-chat-status[data-ok="paused"]::before { content: "❚❚ "; color: var(--ofr-text-dim); }
+.ofr-chat-mutes { padding: 2px 4px; border: 0; border-radius: var(--ofr-radius-control, 6px); background: none; color: var(--ofr-text-dim); font-size: 10.5px; text-decoration: underline; }
+.ofr-chat-mutes:hover { background: var(--ofr-btn-hover); color: var(--ofr-text); }
 
 .ofr-chat-note {
   padding: 8px 10px;
@@ -791,84 +1111,67 @@ html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
   background: var(--ofr-panel-soft);
   color: var(--ofr-text-dim);
   font-size: 11px;
-  cursor: pointer;
+  line-height: 1.45;
 }
-.ofr-chat[data-mode="paused"] .ofr-chat-note { border-bottom: 0; cursor: default; }
+.ofr-chat-note .ofr-chat-flag { margin-right: 6px; vertical-align: 1px; }
+.ofr-chat-note-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+.ofr-chat[data-mode="paused"] .ofr-chat-note { border-bottom: 0; }
 
 .ofr-chat-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 10px; scrollbar-width: thin; overflow-wrap: anywhere; }
-.ofr-chat-row { position: relative; padding: 2px 18px 2px 0; }
+.ofr-chat-row { position: relative; padding: 2px 22px 2px 0; }
 .ofr-chat-row.sys { padding-right: 0; color: var(--ofr-text-dim); font-size: 11px; font-style: italic; }
 .ofr-chat-who { margin-right: 6px; color: var(--ofr-average); font-weight: 700; }
-.ofr-chat-row.mine .ofr-chat-who { color: var(--ofr-accent); }
-.ofr-chat-key { color: var(--ofr-text-dim); font: 400 9.5px ui-monospace, Consolas, monospace; }
+.ofr-chat-row.mine .ofr-chat-who { color: var(--ofr-accent-ink, var(--ofr-accent)); }
+.ofr-chat-key { color: var(--ofr-text-dim); font: 400 10px var(--ofr-mono-font, ui-monospace, monospace); }
 .ofr-chat-text { white-space: pre-wrap; }
 .ofr-chat-mute {
   position: absolute;
-  top: 1px;
+  top: 0;
   right: 0;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--ofr-radius-control, 6px);
   background: none;
   color: var(--ofr-text-dim);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
-  opacity: 0;
+  opacity: 0.35;
+  transition: opacity var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
 }
 .ofr-chat-row:hover .ofr-chat-mute, .ofr-chat-mute:focus-visible { opacity: 1; }
 .ofr-chat-mute:hover { background: var(--ofr-btn-hover); color: var(--ofr-elite); }
 
 .ofr-chat-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--ofr-panel-border); }
-.ofr-chat-input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: var(--ofr-panel-radius);
-  background: var(--ofr-panel-soft);
-  color: var(--ofr-text);
-  font: inherit;
-}
-.ofr-chat-input:focus { outline: 1px solid var(--ofr-accent); }
-.ofr-chat-send {
-  padding: 5px 10px;
-  border: 1px solid var(--ofr-btn-border);
-  border-radius: var(--ofr-panel-radius);
-  background: var(--ofr-btn-bg);
-  font-size: 12px;
-}
-.ofr-chat-send:hover:not(:disabled) { background: var(--ofr-btn-hover); }
-.ofr-chat-send:disabled, .ofr-chat-input:disabled { opacity: 0.5; cursor: default; }
+.ofr-chat-input { flex: 1; min-width: 0; }
+.ofr-chat-send { flex: none; }
 /* team games: Everyone / Team tabs, and the verification box (team.js, docs/TEAM-CHAT.md) */
-.ofr-chat-tabs { display: flex; border-bottom: 1px solid var(--ofr-panel-border); }
-.ofr-chat-view { flex: 1; padding: 5px 6px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ofr-text-dim); font-size: 11.5px; font-weight: 700; }
-.ofr-chat-view:hover { background: var(--ofr-btn-hover); }
-.ofr-chat-view[data-on="true"] { border-bottom-color: var(--ofr-accent); color: var(--ofr-text); }
-.ofr-chat-view[data-unread="true"] { color: var(--ofr-accent); }
-.ofr-chat[data-view="team"] .ofr-chat-panel { height: min(460px, 80vh); }
+.ofr-chat-tabs { padding: 0 var(--ofr-space-2, 4px); }
+.ofr-chat[data-view="team"] .ofr-chat-panel { height: min(460px, calc(80vh / var(--ofr-scale))); }
 .ofr-team { flex: 0 1 auto; max-height: 55%; overflow-y: auto; padding: 6px 10px; border-bottom: 1px solid var(--ofr-panel-border); background: var(--ofr-panel-soft); scrollbar-width: thin; }
-.ofr-team:has(.ofr-team-pair) { max-height: 78%; }
+.ofr-team:has(.ofr-team-pair) { max-height: none; flex: 1 1 auto; }
+.ofr-chat[data-view="team"]:has(.ofr-team-pair) .ofr-chat-log { display: none; }
 .ofr-team-line { padding: 2px 0; font-size: 11.5px; }
 .ofr-team-line.dim { color: var(--ofr-text-dim); font-size: 11px; }
 .ofr-team-line.warn { color: var(--ofr-strong); font-size: 11px; }
-.ofr-team-alarm { margin-bottom: 6px; padding: 6px 8px; border: 1px solid var(--ofr-elite); border-radius: var(--ofr-panel-radius); color: var(--ofr-elite); font-size: 11.5px; font-weight: 700; }
-.ofr-team-pair { margin-bottom: 6px; padding: 6px 8px; border: 1px solid color-mix(in srgb, var(--ofr-accent) 60%, transparent); border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-bg); }
-.ofr-team-sas { display: flex; justify-content: center; gap: 10px; padding: 6px 0; }
-.ofr-team-emoji { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--ofr-btn-border); border-radius: 8px; background: var(--ofr-panel-soft); font-size: 26px; line-height: 1; }
+.ofr-team-alarm { margin-bottom: 6px; padding: 6px 8px; border: 1px solid var(--ofr-elite); border-radius: var(--ofr-radius-inner, 6px); color: var(--ofr-elite); font-size: 11.5px; font-weight: 700; }
+.ofr-team-pair { display: flex; flex-direction: column; margin-bottom: 6px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--ofr-accent) 60%, transparent); border-radius: var(--ofr-radius-inner, 6px); background: var(--ofr-float-bg, var(--ofr-panel-bg)); }
+.ofr-team-pair-head { font-size: 12.5px; font-weight: var(--ofr-fw-bold, 700); }
+.ofr-team-pair-status { padding: 2px 0; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.ofr-team-pair .ofr-btn { margin-top: var(--ofr-space-2, 4px); margin-left: auto; display: flex; }
+.ofr-team-sas { display: flex; justify-content: center; gap: 10px; padding: 8px 0; }
+.ofr-team-emoji { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-radius-inner, 6px); background: var(--ofr-panel-soft); font-size: 26px; line-height: 1; }
 .ofr-team-emoji[data-done="true"] { border-color: var(--ofr-good); box-shadow: inset 0 0 0 1px var(--ofr-good); }
+.ofr-team-emoji[data-next="true"] { border-color: var(--ofr-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ofr-accent) 35%, transparent); }
 .ofr-team-mate { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
 .ofr-team-name { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .ofr-team-tag { flex: 1; color: var(--ofr-text-dim); font-size: 10.5px; white-space: nowrap; }
 .ofr-team-tag[data-status="direct"], .ofr-team-tag[data-status="vouched"] { color: var(--ofr-good); }
-.ofr-team-btn { padding: 2px 9px; border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-panel-radius); background: var(--ofr-btn-bg); font-size: 11px; }
-.ofr-team-btn:hover { background: var(--ofr-btn-hover); }
-.ofr-team-btn[data-hot="true"] { border-color: var(--ofr-accent); color: var(--ofr-accent); }
-.ofr-team-pair .ofr-team-btn { margin-top: 4px; }
+.ofr-team-btn { flex: none; }
 .ofr-chat [hidden] { display: none !important; }
 
 /* timelapse tab in the recap */
-.ofr-lapse-canvas { display: block; width: 100%; height: auto; border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-panel-radius); image-rendering: pixelated; background: #0b0d12; }
+.ofr-lapse-canvas { display: block; width: 100%; height: auto; border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-radius-inner, 6px); image-rendering: auto; background: var(--ofr-stage-bg); }
 .ofr-recap .ofr-lapse-actions { padding: 0; }
 .ofr-lapse-actions[data-busy="true"] button { opacity: 0.5; cursor: progress; }

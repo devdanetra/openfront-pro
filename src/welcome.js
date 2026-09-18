@@ -3,11 +3,29 @@
 // messages while dataConsent is not true.
 const state = document.getElementById("state");
 
+// The state card (.ofr-state): a title line, one plain line, and - once lookups
+// are on - a link to the game. Static strings only, built with DOM methods.
 function show(on) {
   state.dataset.on = String(on);
-  state.textContent = on
-    ? "Rank lookups are ON. Open or reload openfront.io to see them."
-    : "Rank lookups are OFF. No names or game ids are sent.";
+  state.dataset.kind = on ? "ok" : "empty";
+  const text = document.createElement("span");
+  const title = document.createElement("span");
+  title.className = "ofr-state-title";
+  title.textContent = on ? "Rank lookups are ON." : "Rank lookups are OFF.";
+  text.append(title, on ? "Open or reload openfront.io to see them." : "No names or game ids are sent.");
+  if (on) {
+    const actions = document.createElement("span");
+    actions.className = "ofr-state-actions";
+    const open = document.createElement("a");
+    open.className = "ofr-btn ofr-btn-sm";
+    open.href = "https://openfront.io/";
+    open.target = "_blank";
+    open.rel = "noopener";
+    open.textContent = "Open openfront.io";
+    actions.append(open);
+    text.append(actions);
+  }
+  state.replaceChildren(text);
 }
 
 async function set(on) {

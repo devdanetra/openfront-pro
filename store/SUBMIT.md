@@ -17,11 +17,11 @@ Everything to paste is in this folder. The steps that only you can do are marked
 
 ## 1. Upload
 
-*Add new item* -> upload **`openfront-pro-5.8.0.zip`** (built by
+*Add new item* -> upload **`openfront-pro-5.9.0.zip`** (built by
 `node tools/pack.mjs`; manifest at the root, 27 files including `src/team.js`
 and `src/timelapse.js`, no tools/tests). Do **not** upload an older zip: 5.6.x
 still asks for permissions that were removed for the store, and the privacy
-texts in this folder describe 5.8.0.
+texts in this folder describe 5.9.0.
 
 ## 2. Store listing tab -> `LISTING.md`
 

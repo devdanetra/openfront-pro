@@ -12,91 +12,112 @@
         background: var(--ofr-stage-bg);
         color: var(--ofr-text);
       }
-      html { overflow-x: hidden; }
+      html { overflow-x: hidden; scrollbar-color: var(--ofr-btn-border) var(--ofr-stage-bg); }
       body { box-sizing: border-box; max-width: 100%; }
       html.embedded body { width: auto; }
       a { color: var(--ofr-average); }
       p { margin: 8px 0 0; font-size: 11px; color: var(--ofr-text-dim); }
 
+      /* .ofr-btn sets display, which would beat the UA's [hidden] rule */
+      [hidden] { display: none !important; }
+      a:focus-visible, select:focus-visible {
+        outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average)); outline-offset: 2px;
+      }
+
       /* header: name, what it is, and the one switch that turns everything off */
       .top { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px; }
       .top img { width: 32px; height: 32px; border-radius: 8px; }
       .top .who { flex: 1; min-width: 0; }
-      .top h1 { margin: 0; font-size: 15px; line-height: 1.2; }
-      .top .disclaimer { font-size: 10.5px; color: var(--ofr-text-dim); }
+      .top h1 { margin: 0; font-size: var(--ofr-fs-lg, 15px); line-height: 1.2; }
+      .top .disclaimer { font-size: var(--ofr-fs-label, 10.5px); color: var(--ofr-text-dim); }
+      .master-state { font-size: var(--ofr-fs-xs, 11px); font-weight: var(--ofr-fw-semibold, 600); color: var(--ofr-text-dim); }
 
-      /* tabs */
-      .tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--ofr-panel-border); }
-      .tabs button {
-        flex: 1; margin: 0; padding: 7px 2px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
-        background: none; color: var(--ofr-text-dim); font: 600 12px var(--ofr-ui-font); cursor: pointer;
-      }
-      .tabs button:hover { color: var(--ofr-text); background: none; }
-      .tabs button[aria-selected="true"] { color: var(--ofr-text); border-bottom-color: var(--ofr-accent); }
+      /* tabs (the shared .ofr-tabs / .ofr-tab pattern; only the container's inset is ours) */
+      .tabs { padding: 0 10px; }
       .pane { display: none; padding: 4px 14px 0; }
       .pane[data-on="true"] { display: block; }
 
-      /* groups and rows */
-      h2 { margin: 14px 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ofr-text-dim); }
-      h2 small { font-weight: 400; letter-spacing: 0; text-transform: none; }
-      .card { border: 1px solid var(--ofr-panel-border); border-radius: calc(var(--ofr-panel-radius) + 2px); background: var(--ofr-panel-soft); overflow: hidden; }
+      /* groups and rows (headings are .ofr-eyebrow, cards are .ofr-card) */
+      h2.ofr-eyebrow { margin: 16px 0 6px; }
+      .card { overflow: hidden; }
       .card > label, .card > .field { display: flex; align-items: center; gap: 12px; margin: 0; padding: 9px 12px; }
       .card > * + * { border-top: 1px solid var(--ofr-panel-border); }
       .card .txt { flex: 1; min-width: 0; }
-      .card .txt b { display: block; font-weight: 600; }
-      .card .txt small { display: block; margin-top: 1px; font-size: 11px; line-height: 1.35; color: var(--ofr-text-dim); }
+      .card .txt b { display: block; font-weight: var(--ofr-fw-semibold, 600); }
+      .card .txt small { display: block; margin-top: 1px; font-size: var(--ofr-fs-xs, 11px); line-height: 1.35; color: var(--ofr-text-dim); }
       label.warn .txt b { color: var(--ofr-strong); }
       label.off, .field.off { opacity: 0.5; }
+      /* depends on a switch that is off: dimmed, still operable - so its text
+         keeps 4.5:1 (the dim text colour); only the switch itself fades */
+      label.dep-off .txt b, label.dep-off .txt small { color: var(--ofr-text-dim); } /* also over label.warn */
+      label.dep-off input[type="checkbox"] { opacity: 0.55; }
 
       /* a checkbox drawn as a switch (still a checkbox: keyboard and screen readers unchanged) */
       input[type="checkbox"] {
-        appearance: none; flex: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: 999px;
-        background: var(--ofr-btn-border); cursor: pointer; transition: background 0.15s;
+        appearance: none; flex: none; position: relative; width: 36px; height: 20px; margin: 0;
+        border-radius: var(--ofr-radius-switch, 999px); background: var(--ofr-btn-border); cursor: pointer;
+        transition: background-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
       }
       input[type="checkbox"]::after {
-        content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
-        background: var(--ofr-text); transition: transform 0.15s;
+        content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+        border-radius: var(--ofr-radius-switch, 999px); background: var(--ofr-text);
+        transition: transform var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
       }
       input[type="checkbox"]:checked { background: var(--ofr-accent); }
-      input[type="checkbox"]:checked::after { transform: translateX(14px); background: var(--ofr-stage-bg); }
-      input[type="checkbox"]:focus-visible { outline: 2px solid var(--ofr-average); outline-offset: 2px; }
-      input[type="checkbox"]:disabled { cursor: default; }
-      @media (prefers-reduced-motion: reduce) { input[type="checkbox"], input[type="checkbox"]::after { transition: none; } }
+      input[type="checkbox"]:checked::after { transform: translateX(16px); background: var(--ofr-on-accent, #1a1300); }
+      input[type="checkbox"]:focus-visible {
+        outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average)); outline-offset: 2px;
+      }
+      input[type="checkbox"]:disabled { cursor: not-allowed; }
 
       select {
-        max-width: 190px; padding: 5px 6px; border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-panel-radius);
-        background: var(--ofr-btn-bg); color: inherit; font: inherit;
+        box-sizing: border-box; max-width: 190px; height: var(--ofr-ctl-h-md, 30px); padding: 0 8px;
+        border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-radius-control, 6px);
+        background: var(--ofr-btn-bg); color: inherit; font: inherit; cursor: pointer;
+        transition: border-color var(--ofr-dur-1, 120ms) var(--ofr-ease-out, ease-out);
       }
+      select:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ofr-text) 35%, var(--ofr-btn-border)); }
+      select:disabled { cursor: not-allowed; }
       .field.stack { display: block; }
       .field.stack select { width: 100%; max-width: none; margin-top: 6px; }
 
-      button {
-        margin-top: 8px; padding: 7px 10px; border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-panel-radius);
-        background: var(--ofr-btn-bg); color: inherit; font: inherit; cursor: pointer;
-      }
-      button:hover { background: var(--ofr-btn-hover); }
-      .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
-      .buttons button { flex: 1; white-space: nowrap; }
+      /* buttons are .ofr-btn (content.css); only the layout is ours */
+      .buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .buttons button { flex: 1; }
 
       #theme-preview { display: flex; flex-wrap: wrap; gap: 4px 0; padding: 10px 8px; }
       #theme-preview .ofr-badge { margin-left: 4px; cursor: default; }
-      .warn-note { margin: 6px 2px 0; font-size: 10.5px; color: var(--ofr-text-dim); }
+      .warn-note { margin: 6px 2px 0; font-size: var(--ofr-fs-label, 10.5px); color: var(--ofr-text-dim); }
 
-      .consent { margin: 8px 0; padding: 10px; border: 1px solid var(--ofr-accent); border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-soft); font-size: 11px; }
+      .consent {
+        margin: 8px 0; padding: 10px; border: 1px solid var(--ofr-panel-border); border-left: 3px solid var(--ofr-accent);
+        border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-soft); font-size: var(--ofr-fs-xs, 11px);
+      }
       .consent ul { margin: 6px 0; padding-left: 16px; }
       .consent li { margin: 4px 0; }
-      .consent .row { display: flex; gap: 6px; }
-      #consent-banner { margin: 10px 14px 0; }
+      .consent .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      #consent-banner { margin: 10px 14px 8px; }
 
       #watchlist { list-style: none; margin: 0; padding: 0; max-height: 140px; overflow-y: auto; }
-      #watchlist li { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; color: var(--ofr-accent); font-size: 12px; }
+      #watchlist li {
+        display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; min-height: 24px;
+        color: var(--ofr-accent-ink, var(--ofr-accent)); font-size: var(--ofr-fs-sm, 12px);
+      }
       #watchlist li + li { border-top: 1px solid var(--ofr-panel-border); }
-      #watchlist li button { width: auto; margin: 0; padding: 0 6px; border: 0; background: none; color: var(--ofr-text-dim); }
-      #watchlist .empty { color: var(--ofr-muted); font-style: italic; }
-      #status { padding: 9px 12px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
-      #status b { color: var(--ofr-text); }
-      .bad { color: var(--ofr-elite); }
-      .good { color: var(--ofr-good); }
+      #watchlist li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #watchlist .empty { justify-content: flex-start; margin: 0; padding: 8px 12px; color: var(--ofr-text-dim); font-style: normal; }
+      #watchlist .empty > span { white-space: normal; }
+
+      /* About: one row per check, a dot for its state, detail lines under it */
+      #status { padding: 8px 12px; font-size: var(--ofr-fs-sm, 12px); line-height: 1.4; }
+      .status-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+      .status-row .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ofr-text-dim); transform: translateY(-1px); }
+      .status-row[data-ok="true"] .dot { background: var(--ofr-good); }
+      .status-row[data-ok="false"] .dot { background: var(--ofr-elite); }
+      .status-row:not([data-ok]) .dot { visibility: hidden; }
+      .status-row b { color: var(--ofr-text); font-weight: var(--ofr-fw-semibold, 600); }
+      .status-row .val { margin-left: auto; color: var(--ofr-text-dim); text-align: right; }
+      .status-detail { margin: 0 0 4px 16px; font-size: var(--ofr-fs-xs, 11px); color: var(--ofr-text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
@@ -106,24 +127,25 @@
         <h1>OpenFront Pro</h1>
         <div class="disclaimer">Unofficial — not affiliated with OpenFront.</div>
       </div>
+      <span class="master-state" id="enabled-state" aria-hidden="true"></span>
       <input type="checkbox" id="enabled" title="Everything on / off" aria-label="Enable OpenFront Pro" />
     </div>
     <div id="consent-banner" class="consent" hidden>
       <b>Rank lookups are off.</b> To show ranks, player names from your lobby and game (yours included) are looked up at api.ofstats.io (a third-party service). Nothing is sent until you agree.
-      <div class="row"><button id="consent-open" type="button">Read and turn on</button></div>
+      <div class="row"><button id="consent-open" class="ofr-btn ofr-btn-primary" type="button">Read and turn on</button></div>
     </div>
 
-    <div class="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="look">Look</button>
-      <button type="button" role="tab" data-tab="lobby">Lobby</button>
-      <button type="button" role="tab" data-tab="game">Game</button>
-      <button type="button" role="tab" data-tab="chat">Chat</button>
-      <button type="button" role="tab" data-tab="about">About</button>
+    <div class="tabs ofr-tabs" role="tablist" aria-label="Settings sections">
+      <button type="button" class="ofr-tab" role="tab" data-tab="look">Look</button>
+      <button type="button" class="ofr-tab" role="tab" data-tab="lobby">Lobby</button>
+      <button type="button" class="ofr-tab" role="tab" data-tab="game">Game</button>
+      <button type="button" class="ofr-tab" role="tab" data-tab="chat">Chat</button>
+      <button type="button" class="ofr-tab" role="tab" data-tab="about">About</button>
     </div>
 
     <div class="pane" data-pane="look">
-      <h2>Theme <small id="theme-blurb"></small></h2>
-      <div class="card">
+      <h2 class="ofr-eyebrow">Theme <small id="theme-blurb"></small></h2>
+      <div class="card ofr-card">
         <div class="field stack">
           <select id="theme"></select>
           <div id="theme-preview">
@@ -138,8 +160,8 @@
         </div>
         <label id="themeSite-row"><span class="txt"><b>Recolour OpenFront too</b><small id="themeSite-note">One theme for everything: badges, cards, dashboard, recap, this panel and the site's own pages.</small></span><input type="checkbox" id="themeSite" /></label>
       </div>
-      <h2>Layout</h2>
-      <div class="card">
+      <h2 class="ofr-eyebrow">Layout</h2>
+      <div class="card ofr-card">
         <div class="field"><span class="txt"><b>Website</b><small>Re-arranges the front page. Ads are never hidden.</small></span>
           <select id="siteLayout">
             <option value="default">Default</option>
@@ -167,11 +189,11 @@
     </div>
 
     <div class="pane" data-pane="lobby">
-      <h2>Rank badges</h2>
-      <div class="card">
+      <h2 class="ofr-eyebrow">Rank badges</h2>
+      <div class="card ofr-card">
         <label><span class="txt"><b>Game count</b><small>"12.5% WR · 48" for players with too few games to rank</small></span><input type="checkbox" id="showGames" /></label>
         <label><span class="txt"><b>Mark unrankable names</b><small>guest, hidden, no public games</small></span><input type="checkbox" id="explainMissing" /></label>
-        <label><span class="txt"><b>Skill on this map</b><small>&#x1F5FA; next to players who are better or worse here</small></span><input type="checkbox" id="showMapRank" /></label>
+        <label><span class="txt"><b>Skill on this map</b><small>"map 0.5%" next to players who are better or worse here</small></span><input type="checkbox" id="showMapRank" /></label>
         <label><span class="txt"><b>Hot / cold form</b><small>&#x1F525; &#x2744; from the last ten games</small></span><input type="checkbox" id="showForm" /></label>
         <label><span class="txt"><b>Possible smurfs</b><small>&#x26A0; few games, far more wins than expected</small></span><input type="checkbox" id="flagSmurfs" /></label>
         <div class="field"><span class="txt"><b>Clicking a badge</b></span>
@@ -181,37 +203,37 @@
           </select>
         </div>
       </div>
-      <h2>Scouting</h2>
-      <div class="card">
+      <h2 class="ofr-eyebrow">Scouting</h2>
+      <div class="card ofr-card">
         <label><span class="txt"><b>Lobby &amp; team summary</b><small>average strength, clan groups, copyable report</small></span><input type="checkbox" id="showSummary" /></label>
-        <label><span class="txt"><b>Outline the strongest</b></span><input type="checkbox" id="markThreats" /></label>
+        <label><span class="txt"><b>Highlight the strongest</b><small>fills the badge of the one or two strongest players</small></span><input type="checkbox" id="markThreats" /></label>
         <label><span class="txt"><b>Map preview</b><small>with a zoomable terrain view</small></span><input type="checkbox" id="showMapPreview" /></label>
         <label><span class="txt"><b>Clan stats</b><small>dashboard section and lobby chips</small></span><input type="checkbox" id="clanStats" /></label>
         <label><span class="txt"><b>Copy the report at 10 s</b><small>overwrites your clipboard when the countdown hits ten</small></span><input type="checkbox" id="autoCopyReport" /></label>
       </div>
       <p class="warn-note" id="autoCopy-lock" hidden>Auto-copy needs a permission that can only be granted from the toolbar popup.</p>
-      <h2>Watchlist <small>Shift+click a badge to add</small></h2>
-      <div class="card">
+      <h2 class="ofr-eyebrow">Watchlist <small>Shift+click a badge to add</small></h2>
+      <div class="card ofr-card">
         <ul id="watchlist"></ul>
         <label><span class="txt"><b>Sound and notification</b><small>when a watched player joins your lobby</small></span><input type="checkbox" id="soundAlerts" /></label>
       </div>
     </div>
 
     <div class="pane" data-pane="game">
-      <h2>After the game</h2>
-      <div class="card">
+      <h2 class="ofr-eyebrow">After the game</h2>
+      <div class="card ofr-card">
         <label><span class="txt"><b>Game recap</b><small>result, your numbers ranked in the lobby, graphs, awards, share image</small></span><input type="checkbox" id="showRecap" /></label>
         <label><span class="txt"><b>Timelapse</b><small>records the whole map during the game (while the recap is on); save it as a video or GIF from the recap. Stays in memory, never uploaded.</small></span><input type="checkbox" id="timelapse" /></label>
       </div>
-      <h2>Streaming</h2>
-      <div class="card">
+      <h2 class="ofr-eyebrow">Streaming</h2>
+      <div class="card ofr-card">
         <label><span class="txt"><b>Streamer mode</b><small>hides your own name and rank everywhere, chat included - except that in team games the team channel still announces your player slot, which anyone in that game can match to your name</small></span><input type="checkbox" id="streamerMode" /></label>
       </div>
     </div>
 
     <div class="pane" data-pane="chat">
-      <h2>Chat <small>beta - off by default</small></h2>
-      <div class="card">
+      <h2 class="ofr-eyebrow">Chat <small>beta - off by default</small></h2>
+      <div class="card ofr-card">
         <label><span class="txt"><b>Chat with other Pro players</b><small>one public room per lobby / game, over third-party Nostr relays</small></span><input type="checkbox" id="chatEnabled" /></label>
         <label><span class="txt"><b>Mask slurs and the like</b></span><input type="checkbox" id="chatFilter" /></label>
         <label><span class="txt"><b>Encrypted team channel</b><small>Team games: a second tab whose text is encrypted to teammates verified through the game, by you or through a chain of teammates who verified each other (you verify each other by sending three emojis in the game). Who takes part is public, and a script in OpenFront's page could fake a verification.</small></span><input type="checkbox" id="chatTeam" /></label>
@@ -228,18 +250,18 @@
           <li>Names in the public room are not verified. Be decent; do not share personal information. You can mute anyone, and report abuse from the chat panel.</li>
         </ul>
         <a href="https://github.com/devdanetra/openfront-pro/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a>
-        <div class="row"><button id="chat-agree" type="button">I agree - turn chat on</button><button id="chat-cancel" type="button">Cancel</button></div>
+        <div class="row"><button id="chat-agree" class="ofr-btn ofr-btn-primary" type="button">I agree - turn chat on</button><button id="chat-cancel" class="ofr-btn" type="button">Cancel</button></div>
       </div>
       <p class="warn-note">Always open in the lobby, after the game and during team games. No server of ours: the relays see your IP address and what you send; other players see your name, your text and a throw-away key for that game (in team games also the player slot it claims and whom it verified), never your IP address.</p>
     </div>
 
     <div class="pane" data-pane="about">
-      <h2>Status</h2>
-      <div class="card"><div id="status">Checking…</div></div>
+      <h2 class="ofr-eyebrow">Status</h2>
+      <div class="card ofr-card"><div id="status">Checking…</div></div>
       <div class="buttons">
-        <button id="inject" type="button">Enable on openfront.io</button>
-        <button id="clear" type="button">Clear cached ranks</button>
-        <button id="consent-off" type="button" hidden>Turn rank lookups off</button>
+        <button id="inject" class="ofr-btn" type="button">Enable on openfront.io</button>
+        <button id="clear" class="ofr-btn" type="button">Clear cached ranks</button>
+        <button id="consent-off" class="ofr-btn ofr-btn-ghost ofr-btn-danger" type="button" hidden>Turn rank lookups off</button>
       </div>
       <p>
         Ranks come from public-game stats on

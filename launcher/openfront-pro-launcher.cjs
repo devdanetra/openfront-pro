@@ -534,7 +534,8 @@ function isolatedSource() {
   const popupHtml = text("src/popup.html");
   const popupStyle = [...popupHtml.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n")
     .replace(/(^|[\s,}])body(\s*\{)/g, "$1.ofr-settings-body$2")
-    .replace(/html\.embedded\s+\.ofr-settings-body/g, ".ofr-settings-body");
+    // every embedded-only popup rule ("html.embedded ...") applies in the game window too
+    .replace(/html\.embedded\s+/g, "");
   const popupBody = (/<body>([\s\S]*?)<\/body>/.exec(popupHtml)?.[1] ?? "")
     .replace(/<script[\s\S]*?<\/script>/g, "")
     // relative to the extension page; in the game window it has to be self-contained
@@ -548,15 +549,20 @@ function isolatedSource() {
     document.querySelector(".ofr-settings")?.remove();
     const overlay = document.createElement("div");
     overlay.className = "ofr-settings";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "OpenFront Pro settings");
     const box = document.createElement("div");
     box.className = "ofr-settings-box";
     const head = document.createElement("div");
     head.className = "ofr-settings-head";
     const title = document.createElement("span");
-    title.textContent = "OpenFront Pro settings";
+    title.textContent = "Settings";
     const close = document.createElement("button");
     close.type = "button";
     close.textContent = "\u2715";
+    close.setAttribute("aria-label", "Close settings");
+    close.title = "Close (Esc)";
     head.append(title, close);
     const host = document.createElement("div");
     host.style.cssText = "flex:1;min-height:0;overflow:auto";

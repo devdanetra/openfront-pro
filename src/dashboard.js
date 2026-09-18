@@ -25,6 +25,47 @@
     return node;
   };
 
+  // A designed state (content.css .ofr-state): loading, empty, error or ok, with
+  // an optional bold title, one plain line, detail in the hover title and
+  // action buttons. Every string goes in as text (a name can be in it).
+  //   kind: "loading" | "empty" | "error" | "ok"
+  //   opts: { title, compact, hook (the old class, kept for layout), tip, actions: [[label, onClick]] }
+  function stateEl(kind, line, { title = null, compact = false, hook = null, tip = null, actions = [] } = {}) {
+    const box = el("p", ["ofr-state", compact ? "ofr-state-compact" : "", hook ?? ""].filter(Boolean).join(" "));
+    box.dataset.kind = kind;
+    if (kind === "loading") box.setAttribute("role", "status");
+    if (tip) box.title = tip;
+    const text = el("span");
+    if (title) text.append(el("span", "ofr-state-title", title));
+    if (line) text.append(document.createTextNode(line));
+    if (actions.length) {
+      const row = el("span", "ofr-state-actions");
+      for (const [label, onClick] of actions) {
+        const b = el("button", "ofr-btn ofr-btn-sm", label);
+        b.type = "button";
+        b.addEventListener("click", onClick);
+        row.append(b);
+      }
+      text.append(row);
+    }
+    box.append(text);
+    return box;
+  }
+  // the one-line "nothing here" inside a section
+  const emptyLine = (line) => stateEl("empty", line, { compact: true, hook: "ofr-dash-empty" });
+
+  // A small "i" whose hover title says how to read a chart (the sentence that
+  // used to sit under it); focusable, and named for screen readers.
+  function infoTip(text) {
+    const tip = el("span", "ofr-info");
+    tip.title = text;
+    tip.tabIndex = 0;
+    tip.setAttribute("role", "note");
+    tip.setAttribute("aria-label", text);
+    tip.append(C?.icon ? C.icon("info") : document.createTextNode("i"));
+    return tip;
+  }
+
   const fmtBig = (n) => {
     if (n == null) return "—";
     if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
@@ -80,6 +121,7 @@
   const hasTag = (name) => bareName(name) !== name;
   // Said under a miss for an untagged name: the usual reason for "no history".
   const TAG_HINT = ' A player with a clan tag is found as "[TAG] name".';
+  const TAG_SHORT = 'Clan tag? Try "[TAG] name"';
 
   function gameUrl(id) {
     return `https://ofstats.io/game/${encodeURIComponent(id)}`;
@@ -176,11 +218,14 @@
   // ---- data ------------------------------------------------------------------
 
   // username: an ofstats name, sent exactly as given (see tidyName)
-  async function lookup(username) {
+  // fresh: skip the worker's cache (a "Try again" after a failed lookup, which
+  // the worker would otherwise answer from its cached miss)
+  async function lookup(username, { fresh = false } = {}) {
     const res = await chrome.runtime.sendMessage({
       type: "lookup",
       usernames: [username],
       full: true,
+      ...(fresh ? { fresh: true } : {}),
     });
     return res?.[username] ?? null;
   }
@@ -197,7 +242,7 @@
   // built when first opened.
   function numbers(build) {
     const box = el("details", "ofr-dash-numbers");
-    box.append(el("summary", null, "Numbers"));
+    box.append(el("summary", "ofr-chip", "Numbers"));
     box.addEventListener("toggle", () => {
       if (box.open && box.childElementCount === 1) box.append(build());
     });
@@ -300,19 +345,20 @@
 
   function resultsLegend() {
     const legend = el("div", "ofr-dash-legend");
-    const key = (fateKey, mode, text) => {
+    const key = (fateKey, mode, text, tip) => {
       const item = el("span", "ofr-dash-legend-item");
       const cell = el("span", "ofr-dash-strip-cell");
       cell.dataset.fate = fateKey;
       cell.dataset.mode = mode;
       item.append(cell, document.createTextNode(text));
+      item.title = tip;
       legend.append(item);
     };
-    key("won", "ffa", "won");
-    key("lost", "ffa", "eliminated");
-    key("plain", "ffa", "survived");
-    key("won", "team", "team game");
-    key("won", "duel", "1v1");
+    key("won", "ffa", "won", "Won");
+    key("lost", "ffa", "out", "Eliminated");
+    key("plain", "ffa", "alive", "Alive at the end, no win");
+    key("won", "team", "team", "Team game (outlined: the result is the team's)");
+    key("won", "duel", "1v1", "1v1 (round)");
     return legend;
   }
 
@@ -359,40 +405,51 @@
     head.append(title);
 
     const meta = el("div", "ofr-dash-meta");
-    meta.append(
-      el("span", null, `First seen ${ago(info.firstSeen)}`),
-      el("span", null, `Last game ${ago(info.lastSeen)}`),
-    );
+    const seen = el("span", "ofr-dash-seen");
+    seen.title = `Last game ${ago(info.lastSeen)} · first seen ${ago(info.firstSeen)}`;
+    seen.setAttribute("aria-label", seen.title);
+    if (C?.icon) seen.append(C.icon("clock"));
+    seen.append(document.createTextNode(ago(info.lastSeen)));
+    meta.append(seen);
     // (the link's URL carries the name, and a browser shows it on hover)
     if (!(currentOpts.self && currentOpts.streamer)) {
-      const link = el("a", "ofr-dash-link", "Open on ofstats.io ↗");
+      const link = el("a", "ofr-dash-link", "ofstats ↗");
+      link.title = "Open on ofstats.io";
       link.href = profileUrl(name);
       link.target = "_blank";
       link.rel = "noopener";
       meta.append(link);
     }
-    const cmp = el("input", "ofr-dash-compare-input");
+    const cmp = el("input", "ofr-input ofr-input-sm ofr-dash-compare-input");
     cmp.type = "search";
-    cmp.placeholder = "Compare with… [TAG] name";
-    cmp.title = "Another player's name, with their clan tag if they have one: [TAG] name";
+    cmp.placeholder = "Compare…";
+    cmp.setAttribute("aria-label", "Compare with another player");
+    cmp.title = "Compare with another player: their name, with their clan tag if they have one ([TAG] name), then Enter";
+    let cmpFailed = null; // the name whose last lookup failed: asked again past the cache
     cmp.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter" || !cmp.value.trim()) return;
       const other = tidyName(cmp.value);
       cmp.disabled = true;
       let b = null;
       try {
-        b = await lookup(other);
-      } catch {
-        b = null;
+        b = await lookup(other, { fresh: cmpFailed === other });
+      } catch (err) {
+        b = { found: false, reason: "error", error: String(err?.message ?? err) };
       }
+      cmpFailed = b?.reason === "error" ? other : null;
       cmp.disabled = false;
+      cmp.focus();
       const body = head.parentElement;
       body.querySelector(".ofr-dash-section.compare")?.remove();
       let sec;
       if (!b?.found) {
         sec = el("section", "ofr-dash-section compare");
         sec.append(el("h2", null, "Compare"));
-        sec.append(el("p", "ofr-dash-empty", `No history for "${other}".${hasTag(other) ? "" : TAG_HINT}`));
+        sec.append(
+          b?.reason === "error"
+            ? stateEl("error", "Enter to retry", { title: "ofstats.io unreachable", compact: true, hook: "ofr-dash-empty", tip: `Check your connection and press Enter to try again.${b.error ? `\n${b.error}` : b.status ? `\nHTTP ${b.status}` : ""}` })
+            : stateEl("empty", hasTag(other) ? null : TAG_SHORT, { title: `No public games for “${other}”`, compact: true, hook: "ofr-dash-empty", tip: `ofstats.io only counts finished public games.${hasTag(other) ? "" : TAG_HINT}` }),
+        );
       } else {
         sec = compareSection(name, info, other, b);
         sec.classList.add("compare");
@@ -417,11 +474,10 @@
 
     const hero = el("div", "ofr-hero");
     hero.append(heroCard(rankGauge(rank), "world rank"));
-    const key = w.expected != null ? el("div", "ofr-hero-key", "rated games · tick = average player") : null;
-    hero.append(heroCard(winRing(w), "win rate", key));
+    hero.append(heroCard(winRing(w), "win rate"));
     hero.append(
       heroCard(
-        recent.length ? resultsStrip(recent, "big") : el("span", "ofr-hero-none", "no games yet"),
+        recent.length ? resultsStrip(recent, "big") : el("span", "ofr-hero-none", "—"),
         "last 10",
       ),
     );
@@ -462,13 +518,12 @@
   }
 
   function formSection(info) {
-    const sec = section("Recent form");
+    const sec = section("Form");
     const games = info.recentGames ?? [];
     if (games.length === 0) {
-      sec.append(el("p", "ofr-dash-empty", "No recent games on record."));
+      sec.append(emptyLine("No recent games"));
       return sec;
     }
-    sec.append(el("p", "ofr-dash-note", `Last ${games.length}, oldest first`));
     sec.append(resultsStrip(games));
     sec.append(resultsLegend());
     sec.append(
@@ -499,14 +554,19 @@
     const sec = section("Trends");
     const games = [...(info.recentGames ?? [])].reverse();
     if (!C || games.length < 5) {
-      sec.append(el("p", "ofr-dash-empty", "Not enough recent games to draw a trend."));
+      sec.append(stateEl("empty", "Too few games", { compact: true, hook: "ofr-dash-empty", tip: "Not enough recent games to draw a trend." }));
       return sec;
     }
     const grid = el("div", "ofr-dash-charts");
+    // note: how to read the chart, in its hover title (the "i" says it is there)
     const card = (title, note, chart) => {
       const box = el("div", "ofr-dash-chart");
-      box.append(el("h3", null, title), chart);
-      if (note) box.append(el("p", "ofr-dash-note", note));
+      const head = el("h3", null, title);
+      if (note) {
+        box.title = note;
+        head.append(infoTip(note));
+      }
+      box.append(head, chart);
       return box;
     };
     // How many sides could have won: players in a free-for-all, teams otherwise.
@@ -545,7 +605,7 @@
     grid.append(
       card(
         "Win rate",
-        expected != null ? "Dashed line: an average player" : null,
+        expected != null ? "Rolling win rate; dashed line: an average player in these lobbies" : "Rolling win rate",
         C.line({
           series: [
             {
@@ -589,7 +649,7 @@
     grid.append(
       card(
         "Survival",
-        "Full bar: alive at the end",
+        "Share of each game survived; full bar: alive at the end",
         C.columns({ items: survival, width: 420, height: 150, yMax: 100, yFormat: (y) => `${y}%`, label: `Share of each game survived: alive at the end in ${survival.length - died.length} of ${survival.length}` }),
       ),
     );
@@ -602,7 +662,7 @@
       grid.append(
         card(
           "Gold per game",
-          null,
+          "Gold earned in each game, oldest to latest",
           C.columns({
             items: golds.map((g) => ({ value: g.gold, cls: fate(g), title: `${g.map ?? "?"} - ${when(g)}\n${fmtBig(g.gold)} gold${g.won ? ", won" : ""}` })),
             width: 420,
@@ -615,9 +675,10 @@
     }
     sec.append(grid);
     const legend = el("div", "ofr-chart-legend");
-    for (const [kind, text] of [["won", "won"], ["lost", "eliminated"], ["plain", "alive at the end, no win"]]) {
+    for (const [kind, text, tip] of [["won", "won", "Won"], ["lost", "out", "Eliminated"], ["plain", "alive", "Alive at the end, no win"]]) {
       const key = el("span", "ofr-chart-key", text);
       key.dataset.col = kind;
+      key.title = tip;
       legend.append(key);
     }
     sec.append(legend);
@@ -629,14 +690,14 @@
   // leaves out maps below its own floor; the few-game ones it does send are
   // drawn fainter rather than hidden.
   function mapsSection(info) {
-    const sec = section("By map");
+    const sec = section("Maps");
     const all = (info.maps ?? [])
       .filter((m) => m.games > 0 && m.expectedWins > 0)
       .map((m) => ({ ...m, rank: S.rowRank(m) }))
       .filter((m) => m.rank)
       .sort((a, b) => a.rank.pct - b.rank.pct);
     if (all.length === 0) {
-      sec.append(el("p", "ofr-dash-empty", "Play at least 5 games on a map to see it here."));
+      sec.append(stateEl("empty", "5+ games per map", { compact: true, hook: "ofr-dash-empty", tip: "Play at least 5 games on a map to see it here." }));
       return sec;
     }
     const confidence = (m) => (m.games < 5 ? "low" : m.games < 10 ? "mid" : "high");
@@ -678,14 +739,16 @@
       const item = el("span", "ofr-dash-legend-item");
       const sw = el("span", "ofr-maptile-swatch");
       sw.dataset.ofrBand = seg.band;
-      item.append(sw, document.createTextNode(seg.hi >= 100 ? "rest" : `top ${seg.hi}%`));
+      item.title = seg.hi >= 100 ? "Below the top 60%" : `Top ${seg.hi}% on this map`;
+      item.append(sw, document.createTextNode(seg.hi >= 100 ? "rest" : `${seg.hi}%`));
       legend.append(item);
     }
     const faint = el("span", "ofr-dash-legend-item");
     const fsw = el("span", "ofr-maptile-swatch");
     fsw.dataset.ofrBand = GAUGE_SEGMENTS[GAUGE_SEGMENTS.length - 1].band;
     fsw.dataset.conf = "low";
-    faint.append(fsw, document.createTextNode("faded: few games"));
+    faint.title = "Faded: few games on this map, a rough guide";
+    faint.append(fsw, document.createTextNode("few"));
     legend.append(faint);
     head.append(legend);
     sec.append(head);
@@ -723,13 +786,13 @@
   }
 
   function modesSection(info) {
-    const sec = section("By mode");
+    const sec = section("Modes");
     // (a mode row may come without a win count: that is no wins, not NaN)
     const rows = (info.modes ?? [])
       .filter((m) => m.games > 0)
       .map((m) => ({ ...m, wins: Number.isFinite(m.wins) ? m.wins : 0 }));
     if (rows.length === 0) {
-      sec.append(el("p", "ofr-dash-empty", "No games by mode yet."));
+      sec.append(emptyLine("No games yet"));
       return sec;
     }
     const wrap = el("div", "ofr-moderings");
@@ -752,7 +815,7 @@
   }
 
   function bestsSection(info) {
-    const sec = section("Personal bests");
+    const sec = section("Bests");
     const b = info.bests ?? {};
     const grid = el("div", "ofr-bests");
     const card = (iconName, value, line, title) => {
@@ -788,7 +851,7 @@
       );
     }
     if (grid.children.length === 0) {
-      sec.append(el("p", "ofr-dash-empty", "No bests recorded yet."));
+      sec.append(emptyLine("None yet"));
     } else {
       sec.append(grid);
     }
@@ -798,10 +861,10 @@
   // One row per game: result, map, mode, and two small bars (length and
   // conquests, against the longest / most in the list).
   function historySection(info) {
-    const sec = section("Recent games");
+    const sec = section("Games");
     const games = info.recentGames ?? [];
     if (games.length === 0) {
-      sec.append(el("p", "ofr-dash-empty", "Nothing yet."));
+      sec.append(emptyLine("No recent games"));
       return sec;
     }
     const SHOWN = 10;
@@ -811,10 +874,12 @@
     const head = el("div", "ofr-game ofr-game-head");
     const colHead = (iconName, word) => {
       const span = el("span", "ofr-game-colhead");
-      span.append(C.icon(iconName), document.createTextNode(word));
+      span.title = word;
+      span.setAttribute("aria-label", word);
+      span.append(C.icon(iconName));
       return span;
     };
-    head.append(el("span"), el("span"), el("span"), colHead("clock", "length"), colHead("flag", "conquests"));
+    head.append(el("span"), el("span"), el("span"), colHead("clock", "Game length"), colHead("flag", "Conquests"));
     list.append(head);
     games.forEach((g, i) => {
       const f = fate(g);
@@ -829,7 +894,7 @@
       row.title =
         `${g.map ?? "?"} · ${g.mode ?? "?"}${g.players != null ? ` · ${g.players} players` : ""}${g.date ? ` · ${when(g)}` : ""}\n` +
         `${FATE_LONG[f]} · ${fmtDuration(g.duration)} long · ${g.conquests ?? "?"} conquests · ${g.nukes ?? "?"} nukes`;
-      const mode = el("span", "ofr-game-mode", MODE_SHORT[modeKind(g)]);
+      const mode = el("span", "ofr-chip ofr-game-mode", MODE_SHORT[modeKind(g)]);
       mode.dataset.mode = modeKind(g);
       row.append(
         el("span", "ofr-game-result", FATE_WORD[f]),
@@ -842,7 +907,7 @@
     });
     sec.append(list);
     if (games.length > SHOWN) {
-      const more = el("button", "ofr-dash-more", `Show all ${games.length}`);
+      const more = el("button", "ofr-btn ofr-btn-sm ofr-dash-more", `Show all ${games.length}`);
       more.type = "button";
       more.addEventListener("click", () => {
         const expand = more.dataset.open !== "true";
@@ -889,7 +954,7 @@
     const shownMember = (m) => (streamer && (isMe(m) || sameName(m.name, meBare)) ? "You" : m.name);
     const sec = el("section", "ofr-dash-section");
     sec.append(el("h2", null, `Clan [${tag}]`));
-    sec.append(el("p", "ofr-dash-loading", "Loading clan…"));
+    sec.append(stateEl("loading", "Loading…", { compact: true, hook: "ofr-dash-loading" }));
     let clan = null;
     try {
       clan = await chrome.runtime.sendMessage({ type: "clan", tag });
@@ -898,7 +963,7 @@
     }
     sec.replaceChildren(el("h2", null, `Clan [${tag}]`));
     if (!clan?.found) {
-      sec.append(el("p", "ofr-dash-empty", "No clan record on ofstats.io for this tag."));
+      sec.append(clan?.reason === "error" ? stateEl("error", null, { title: "ofstats.io unreachable", compact: true, hook: "ofr-dash-empty", tip: `Couldn’t load the clan from ofstats.io. Try again in a little while.${clan.error ? `\n${clan.error}` : ""}` }) : stateEl("empty", "No clan record", { compact: true, hook: "ofr-dash-empty", tip: "No clan record on ofstats.io for this tag." }));
       return sec;
     }
     const rings = el("div", "ofr-moderings");
@@ -980,7 +1045,7 @@
   // Today's games, as recorded by the recap (content.js). Only for yourself.
   // In streamer mode the rank drift stays out, as it does in-game (content.js).
   async function sessionSection({ streamer = false } = {}) {
-    const sec = section("Today's session");
+    const sec = section("Today");
     let session = null;
     try {
       session = (await chrome.storage.local.get("session")).session ?? null;
@@ -990,7 +1055,9 @@
     const today = new Date().toDateString();
     const games = session && session.day === today ? session.games : [];
     if (games.length === 0) {
-      sec.append(el("p", "ofr-dash-empty", "No finished games yet today. The recap records each one."));
+      // one slim line instead of a full-height card
+      sec.classList.add("ofr-dash-slim");
+      sec.append(stateEl("empty", "No games yet", { compact: true, hook: "ofr-dash-empty", tip: "No games yet today. The recap logs each one." }));
       return sec;
     }
     const wins = games.filter((g) => g.won).length;
@@ -1020,7 +1087,7 @@
     // one bar per game: taller = better placed; a win is green
     const bars = el("div", "ofr-session-bars");
     bars.setAttribute("role", "img");
-    bars.setAttribute("aria-label", `Placings today${avgPlace != null ? `, average place ${avgPlace}` : ""}`);
+    bars.setAttribute("aria-label", `Placings today, taller is better${avgPlace != null ? `, average place ${avgPlace}` : ""}`);
     for (const g of games) {
       const bar = el("span", `ofr-session-bar${g.won ? " won" : ""}`);
       const time = g.at ? new Date(g.at).toLocaleTimeString() : "";
@@ -1033,7 +1100,9 @@
       }
       bars.append(bar);
     }
-    row.append(heroCard(bars, "placing", el("div", "ofr-hero-key", "taller = better")));
+    const placeCard = heroCard(bars, "placing");
+    placeCard.title = `Placing per game: taller = better${avgPlace != null ? `, average #${avgPlace}` : ""}`;
+    row.append(placeCard);
 
     if (drifted) {
       const drift = el("div", "ofr-drift");
@@ -1072,7 +1141,7 @@
 
   // ofstats' weekly clan table, with your clan highlighted.
   async function clanLeaderboardSection(myTag) {
-    const sec = section("Clan leaderboard — this week");
+    const sec = section("Clans this week");
     let lb = null;
     try {
       lb = await chrome.runtime.sendMessage({ type: "clanLeaderboard" });
@@ -1080,13 +1149,18 @@
       lb = null;
     }
     if (!lb?.found || !lb.clans?.length) {
-      sec.append(el("p", "ofr-dash-empty", "Leaderboard unavailable."));
+      sec.append(stateEl("empty", "Unavailable", { compact: true, hook: "ofr-dash-empty", tip: "The weekly leaderboard is unavailable right now." }));
       return sec;
     }
     const clans = lb.clans.slice(0, 10);
     const list = el("div", "ofr-lb");
     const head = el("div", "ofr-lb-row ofr-lb-head");
-    head.append(el("span"), el("span"), el("span", null, "points"), el("span", null, "stacked win rate"));
+    const lbHead = (text, tip) => {
+      const span = el("span", null, text);
+      span.title = tip;
+      return span;
+    };
+    head.append(el("span"), el("span"), lbHead("points", "Points this week"), lbHead("stacked", "Win rate in stacked games (several clan members on one team)"));
     list.append(head);
     for (const c of clans) {
       const row = el("div", `ofr-lb-row${myTag && c.tag === myTag ? " mine" : ""}`);
@@ -1211,7 +1285,9 @@
         }),
       );
     } else {
-      sec.append(el("p", "ofr-dash-note", "No shared games in either player's recent games."));
+      const none = el("p", "ofr-dash-note", "No shared games");
+      none.title = "No shared games in either player's recent games.";
+      sec.append(none);
     }
 
     sec.append(
@@ -1238,29 +1314,53 @@
   // would leave its capture-phase listener eating the next Escape in the game.
   let destroyCurrent = null;
 
+  // "⚙ Settings": the gear icon (when the chart kit is there) and the word
+  const gearLabel = (button) => {
+    if (C?.icon) button.append(C.icon("gear"));
+    button.append(el("span", "ofr-btn-label", "Settings"));
+  };
+
   function shell() {
     destroyCurrent?.();
     document.querySelector(`.${ROOT_CLASS}`)?.remove(); // one left by an earlier copy of this script
     const root = el("div", ROOT_CLASS);
     const bar = el("div", "ofr-dash-bar");
     bar.append(el("span", "ofr-dash-brand", "OpenFront Pro"));
-    bar.append(el("span", "ofr-dash-unofficial", "unofficial"));
-    const search = el("input", "ofr-dash-search");
+    bar.append(el("span", "ofr-chip ofr-dash-unofficial", "Unofficial"));
+    const search = el("input", "ofr-input ofr-dash-search");
     search.type = "search";
-    search.placeholder = "Player name, with [TAG] if they have one";
-    search.title = 'ofstats.io counts a player with a clan tag as "[TAG] name", separately from the bare name';
+    search.placeholder = "Player or [TAG] player";
+    search.title = 'Look up a player: their name, with [TAG] if they have one. ofstats.io counts a player with a clan tag as "[TAG] name", separately from the bare name';
+    search.setAttribute("aria-label", "Look up a player");
     bar.append(search);
-    const close = el("button", "ofr-dash-close", "✕");
-    close.type = "button";
-    bar.append(close);
-    const gear = el("button", "ofr-dash-close", "Settings");
+    const gear = el("button", "ofr-btn ofr-btn-ghost ofr-dash-settings");
     gear.type = "button";
+    gearLabel(gear);
+    // named even where only the gear shows (the panel drawer, dashboard.css)
+    gear.setAttribute("aria-label", "Settings");
+    gear.title = "Settings";
     gear.addEventListener("click", (e) => e.isTrusted && globalThis.__ofrOpenSettings?.()); // a person, not a page script
-    bar.insertBefore(gear, close);
+    const close = el("button", "ofr-btn ofr-btn-icon ofr-dash-close", "✕");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close dashboard");
+    close.title = "Close (Esc)";
+    bar.append(gear, close);
     root.append(bar);
     const body = el("div", "ofr-dash-body");
     root.append(body);
     document.body.appendChild(root);
+    // Full screen, the page under it must not scroll (content.css locks it on
+    // this attribute); the "panel" drawer leaves the page usable beside it.
+    // The layout can change while it is open (Settings, from the gear here), so
+    // the lock follows it.
+    const html = document.documentElement;
+    const syncLock = () => {
+      if (html.dataset.ofrLayout !== "panel") html.dataset.ofrModal = "dash";
+      else if (html.dataset.ofrModal === "dash") delete html.dataset.ofrModal;
+    };
+    syncLock();
+    const lockObs = new MutationObserver(syncLock);
+    lockObs.observe(html, { attributes: true, attributeFilter: ["data-ofr-layout"] });
 
     const onKey = (e) => {
       if (e.key === "Escape") {
@@ -1270,7 +1370,9 @@
     };
     const destroy = () => {
       document.removeEventListener("keydown", onKey, true);
+      lockObs.disconnect();
       root.remove();
+      if (html.dataset.ofrModal === "dash") delete html.dataset.ofrModal;
       if (destroyCurrent === destroy) destroyCurrent = null;
     };
     document.addEventListener("keydown", onKey, true);
@@ -1310,27 +1412,48 @@
     }
   }
 
-  async function render(body, name) {
+  // retry: a "Try again" after a failed lookup, which asks past the worker's cache
+  async function render(body, name, { retry = false } = {}) {
     currentName = name;
     // Streamer mode: your name only ever shows as "you".
     const hide = currentOpts.self && currentOpts.streamer;
-    body.replaceChildren(el("p", "ofr-dash-loading", hide ? "Loading your stats…" : `Loading ${name}…`));
+    body.replaceChildren(stateEl("loading", hide ? "Loading your stats…" : `Loading ${name}…`, { hook: "ofr-dash-loading" }));
+    const failed = (detail) =>
+      body.replaceChildren(
+        stateEl("error", null, {
+          title: "ofstats.io unreachable",
+          hook: "ofr-dash-empty",
+          tip: `Check your connection and try again.${detail ? `\n${detail}` : ""}`,
+          actions: [["Try again", () => { if (currentName === name) render(body, name, { retry: true }); }]],
+        }),
+      );
     let info = null;
     try {
-      info = await lookup(name);
+      info = await lookup(name, { fresh: retry });
     } catch (err) {
-      body.replaceChildren(el("p", "ofr-dash-empty", `Lookup failed: ${err?.message ?? err}`));
+      if (currentName === name) failed(String(err?.message ?? err));
+      return;
+    }
+    if (currentName !== name) return; // another search started meanwhile
+    if (info?.reason === "error") {
+      failed(info.error ?? (info.status ? `HTTP ${info.status}` : ""));
+      return;
+    }
+    if (info?.reason === "consent") {
+      body.replaceChildren(
+        stateEl("empty", "Turn on in Settings", { title: "Lookups are off", hook: "ofr-dash-empty", tip: "Turn on rank lookups in Settings to see stats here." }),
+      );
       return;
     }
     // A tagged name with no history stays that: the bare name is someone else's
     // record on ofstats, so it is never shown in its place.
     if (!info?.found) {
       body.replaceChildren(
-        el(
-          "p",
-          "ofr-dash-empty",
-          hide ? "No public-game history for you on ofstats.io." : `No public-game history for "${name}" on ofstats.io.${hasTag(name) ? "" : TAG_HINT}`,
-        ),
+        stateEl("empty", hide || hasTag(name) ? null : TAG_SHORT, {
+          title: hide ? "No public games for you" : `No public games for “${name}”`,
+          hook: "ofr-dash-empty",
+          tip: `ofstats.io only counts finished public games.${hide || hasTag(name) ? "" : TAG_HINT}`,
+        }),
       );
       return;
     }
@@ -1377,7 +1500,11 @@
       render(body, name);
     } else {
       body.replaceChildren(
-        el("p", "ofr-dash-empty", "Set a username in OpenFront, or search for any player above."),
+        stateEl("empty", "Name above, then Enter", {
+          title: "Search any player",
+          hook: "ofr-dash-empty",
+          tip: "Type a name above and press Enter. Your own stats show here once you set a username in OpenFront.",
+        }),
       );
       // The weekly clan table needs no player, so it still has a home here.
       if (opts.clanStats !== false) {
@@ -1423,35 +1550,46 @@
 
     const bar = el("div", "ofr-home-bar");
     bar.append(el("span", "ofr-home-brand", "OpenFront Pro"));
-    const openBtn = el("button", "ofr-home-btn", "Dashboard");
+    const openBtn = el("button", "ofr-btn ofr-btn-sm ofr-home-btn", "Dashboard");
     openBtn.type = "button";
     openBtn.addEventListener("click", () => open(name ?? null, { ...opts, self: !!name }));
-    const setBtn = el("button", "ofr-home-btn", "Settings");
+    const setBtn = el("button", "ofr-btn ofr-btn-ghost ofr-btn-sm ofr-home-btn");
     setBtn.type = "button";
+    gearLabel(setBtn);
+    setBtn.setAttribute("aria-label", "OpenFront Pro settings");
+    setBtn.title = "OpenFront Pro settings";
     setBtn.addEventListener("click", (e) => e.isTrusted && globalThis.__ofrOpenSettings?.()); // a person, not a page script
     const btns = el("span", "ofr-home-btns");
     btns.append(openBtn, setBtn);
     bar.append(btns);
     card.replaceChildren(bar);
 
+    const homeState = (kind, line, extra = {}) => stateEl(kind, line, { compact: true, hook: "ofr-home-empty", ...extra });
     if (!name) {
-      card.append(
-        el("p", "ofr-home-empty", "Set a username above and your stats will appear here."),
-      );
+      card.append(homeState("empty", "Set a username above", { tip: "Set a username above and your stats appear here." }));
       return;
     }
 
-    card.append(el("p", "ofr-home-empty", "Loading…"));
+    card.append(homeState("loading", "Loading…"));
     let info = null;
     try {
-      info = await lookup(name);
-    } catch {
-      info = null;
+      // after a failure, past the worker's cache: its cached failure would
+      // otherwise keep the error up after the network is back
+      info = await lookup(name, { fresh: card.dataset.ofrErr === key });
+    } catch (err) {
+      info = { found: false, reason: "error", error: String(err?.message ?? err) };
     }
     if (card.dataset.ofrFor !== key) return; // name changed meanwhile
+    card.dataset.ofrErr = info?.reason === "error" ? key : "";
     card.querySelector(".ofr-home-empty")?.remove();
     if (!info?.found) {
-      card.append(el("p", "ofr-home-empty", opts.streamer ? "No public-game history for you yet." : `No public-game history for "${name}" yet.`));
+      card.append(
+        info?.reason === "error"
+          ? homeState("error", "ofstats.io unreachable", { tip: `Couldn’t reach ofstats.io. Check your connection.${info.error ? `\n${info.error}` : info.status ? `\nHTTP ${info.status}` : ""}` })
+          : info?.reason === "consent"
+            ? homeState("empty", "Lookups off (Settings)", { tip: "Rank lookups are off. Turn them on in Settings." })
+            : homeState("empty", "No public games yet", { tip: "No public games for you on ofstats.io yet." }),
+      );
       return;
     }
 
@@ -1489,6 +1627,12 @@
         label: w.label,
       }),
     );
+    if (w.shown != null) {
+      const value = el("span", "ofr-home-row-value", `${Math.round(w.shown)}%`);
+      value.title = w.title;
+      value.setAttribute("aria-hidden", "true"); // the meter's label says it
+      rateRow.append(value);
+    }
     side.append(rateRow);
 
     const recent = (info.recentGames ?? []).slice(0, 10);
@@ -1509,7 +1653,9 @@
         dots.setAttribute("aria-label", text);
         dots.title = text;
         for (const g of stored.games.slice(-12)) dots.append(el("span", `ofr-pip${g.won ? " on" : ""}`));
-        todayBox.append(el("span", "ofr-home-today-word", "today"), dots);
+        todayBox.title = text;
+        if (C?.icon) todayBox.append(C.icon("calendar"));
+        todayBox.append(dots);
       }
     } catch {
       // storage unavailable

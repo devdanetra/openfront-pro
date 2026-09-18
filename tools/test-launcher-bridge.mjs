@@ -146,7 +146,7 @@ const st = await c.inWorld(`(async () => {
   }
   return { overlay: !!document.querySelector(".ofr-settings"), inputs: root.querySelectorAll("input, select").length, themes: root.getElementById("theme").options.length, before, stored, injectHidden: root.getElementById("inject").hidden, status: root.getElementById("status").textContent.slice(0, 40), chatLocked: chat.disabled && !root.getElementById("chatEnabled-lock").hidden, chatOn: chatStored.chatEnabled || chatStored.chatConsent, session };
 })()`);
-check("the same settings UI mounts in a shadow root and writes to storage", st?.overlay && st.inputs > 15 && st.themes === 6 && st.stored === !st.before && st.injectHidden, JSON.stringify(st));
+check("the same settings UI mounts in a shadow root and writes to storage", st?.overlay && st.inputs > 15 && st.themes === 9 && st.stored === !st.before && st.injectHidden, JSON.stringify(st));
 check("chat cannot be switched on from inside the game window", st?.chatLocked === true && st.chatOn === false, JSON.stringify(st));
 check("the game window gets no chrome.storage.session (the worker's chat keys)", st?.session === "no area", String(st?.session));
 check("the page cannot look inside it", (await c.inPage(`(() => { const h = document.querySelector(".ofr-settings-box > div:last-child"); return h ? h.shadowRoot === null && !document.querySelector(".ofr-settings input") : false; })()`)) === true);

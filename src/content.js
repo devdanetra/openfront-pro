@@ -112,24 +112,43 @@ function openSettings() {
   }
   closeSettingsOverlay?.();
   document.querySelector(".ofr-settings")?.remove(); // one a previous copy of this script left
+  const returnFocus = document.activeElement;
   const overlay = document.createElement("div");
   overlay.className = "ofr-settings";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "OpenFront Pro settings");
   const box = document.createElement("div");
   box.className = "ofr-settings-box";
   const head = document.createElement("div");
   head.className = "ofr-settings-head";
   const title = document.createElement("span");
-  title.textContent = "OpenFront Pro settings";
+  title.textContent = "Settings";
   const close = document.createElement("button");
   close.type = "button";
-  close.textContent = "x";
+  close.textContent = "✕";
+  close.setAttribute("aria-label", "Close settings");
+  close.title = "Close (Esc)";
   head.append(title, close);
   const frame = document.createElement("iframe");
   frame.src = chrome.runtime.getURL("src/popup.html");
   frame.title = "OpenFront Pro settings";
+  frame.addEventListener("load", () => frame.focus());
   box.append(head, frame);
   overlay.append(box);
   document.body.appendChild(overlay);
+
+  // The settings page reports its own height (popup.js), so the box fits the
+  // active tab instead of leaving an empty lower third. Only a number is read.
+  // It also forwards Esc: once the frame has focus, key presses stay inside it
+  // and never reach onKey below. Only a boolean is read.
+  const onMessage = (e) => {
+    if (e.source !== frame.contentWindow) return;
+    if (e.data?.ofrSettingsClose === true) return destroy();
+    const h = Number(e.data?.ofrSettingsHeight);
+    if (Number.isFinite(h) && h >= 120 && h <= 4000) frame.style.height = `${Math.ceil(h)}px`;
+  };
+  window.addEventListener("message", onMessage);
 
   const onKey = (e) => {
     if (e.key === "Escape") {
@@ -139,8 +158,10 @@ function openSettings() {
   };
   const destroy = () => {
     document.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("message", onMessage);
     overlay.remove();
     if (closeSettingsOverlay === destroy) closeSettingsOverlay = null;
+    if (returnFocus?.isConnected && typeof returnFocus.focus === "function") returnFocus.focus({ preventScroll: true });
   };
   closeSettingsOverlay = destroy;
   document.addEventListener("keydown", onKey, true);
@@ -158,6 +179,10 @@ globalThis.__ofrOpenSettings = openSettings;
 const MENU_ITEM_CLASSES =
   "w-full flex items-center gap-3 px-4 py-3 text-left text-sm font-medium normal-case tracking-normal cursor-pointer transition-colors text-white/80 hover:bg-white/10 hover:text-white";
 
+// Sliders: "settings", drawn with the menu's own text colour.
+const MENU_ICON =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>';
+
 function installAccountMenuItem() {
   const menu = document.querySelector('nav-account-menu [role="menu"]');
   if (!menu || menu.querySelector(".ofr-menu-item")) return;
@@ -169,7 +194,7 @@ function installAccountMenuItem() {
   item.className = `${normal?.className ?? MENU_ITEM_CLASSES} ofr-menu-item`;
   const iconEl = document.createElement("span");
   iconEl.className = "w-4 h-4 shrink-0";
-  iconEl.textContent = "\u2699";
+  iconEl.innerHTML = MENU_ICON; // a static constant of ours, never page text
   const label = document.createElement("span");
   label.className = "min-w-0 break-words";
   label.textContent = "OpenFront Pro settings";
@@ -273,6 +298,9 @@ function installHomeWidget() {
 let navButton = null;
 function installNavButton() {
   if (!alive()) return;
+  // Only the desktop nav gets the tag. Below ~768 px OpenFront swaps in its
+  // mobile nav, which has no stable hook to attach to; that is accepted, since
+  // the home card under the username field stays the entry point there.
   const nav = document.querySelector("desktop-nav-bar");
   if (!nav) return;
   if (navButton?.isConnected && nav.contains(navButton)) return;
@@ -309,7 +337,7 @@ function installNavButton() {
 // one, in the same isolated world), so the popup's preview and the page agree.
 const THEMES = globalThis.OFR_THEMES ?? {
   classic: {
-    icons: { map: "\u{1F5FA}", hot: "\u{1F525}", cold: "❄", smurf: "⚠", star: "★", trophy: "\u{1F3C6}" },
+    icons: { map: "map ", hot: "\u{1F525}", cold: "❄", smurf: "⚠", star: "★", trophy: "\u{1F3C6}" },
   },
 };
 
@@ -409,12 +437,8 @@ function scanPlayersList(list) {
   const cells = [];
   for (const el of list.querySelectorAll("span, div")) {
     if (el.querySelector(`.${BADGE_CLASS}`)) continue;
-    if (
-      el.classList.contains(BADGE_CLASS) ||
-      el.classList.contains(SUMMARY_CLASS)
-    ) {
-      continue;
-    }
+    // our own nodes (badges and their segments, summary lines and their chips)
+    if (el.closest(`.${BADGE_CLASS}, .${SUMMARY_CLASS}`)) continue;
     const own = readName(el);
     if (!own || UI_CHROME.test(own)) continue;
     // Prefer the innermost element holding the name.
@@ -642,21 +666,26 @@ function smurf(info) {
 function formatBadge(info) {
   if (!info?.found) return null;
 
+  // main: the rank; seg: the map rank, drawn as its own segment; flags: form
+  // and smurf marks.
   const rank = ranked(info);
   if (rank) {
-    const parts = [`Top ${formatPercent(rank.pct)}%`];
+    let seg = null;
     if (settings.showMapRank) {
       const onMap = mapRank(info);
-      if (onMap) parts.push(`${icon("map")}${formatPercent(onMap.pct)}%`);
+      if (onMap) seg = `${icon("map")}${formatPercent(onMap.pct)}%`;
     }
+    const flags = [];
     if (settings.showForm) {
       const f = form(info);
-      if (f?.hot) parts.push(icon("hot"));
-      else if (f?.cold) parts.push(icon("cold"));
+      if (f?.hot) flags.push(icon("hot"));
+      else if (f?.cold) flags.push(icon("cold"));
     }
-    if (settings.flagSmurfs && smurf(info)) parts.push(icon("smurf"));
+    if (settings.flagSmurfs && smurf(info)) flags.push(icon("smurf"));
     return {
-      text: parts.join(" "),
+      main: `Top ${formatPercent(rank.pct)}%`,
+      seg,
+      flags: flags.join(" "),
       kind: "percentile",
       band: percentBand(rank.pct),
     };
@@ -664,10 +693,9 @@ function formatBadge(info) {
 
   // Too few rated games to place; say what little is known instead.
   if (typeof info.winRate !== "number") return null;
-  const text = settings.showGames
-    ? `${info.winRate.toFixed(1)}% WR · ${compactGames(info.games)}`
-    : `${info.winRate.toFixed(1)}% WR`;
-  return { text, kind: "winrate" };
+  const rate = info.games < 20 ? Math.round(info.winRate) : info.winRate.toFixed(1);
+  const text = settings.showGames ? `${rate}% WR · ${compactGames(info.games)} games` : `${rate}% WR`;
+  return { main: text, kind: "winrate" };
 }
 
 // Why a name has no rank, so a blank space is never mistaken for a broken
@@ -676,7 +704,7 @@ const MISSING_TEXT = {
   hidden: "hidden",
   guest: "guest",
   "no-history": "new",
-  error: "?",
+  error: "offline",
 };
 
 const MISSING_TOOLTIP = {
@@ -685,7 +713,7 @@ const MISSING_TOOLTIP = {
   guest:
     "A generated guest name (this player never set one). Thousands of players share these names, so no rank can belong to it.",
   "no-history": "No finished public games on ofstats.io yet.",
-  error: "ofstats.io could not be reached. It is asked again after 30 minutes.",
+  error: "ofstats.io could not be reached. It is asked again in a minute.",
 };
 
 function formatMissing(placeholder, info) {
@@ -693,7 +721,7 @@ function formatMissing(placeholder, info) {
   const reason = placeholder ?? info?.reason ?? "error";
   const text = MISSING_TEXT[reason];
   if (!text) return null;
-  return { text, kind: "missing", reason };
+  return { main: text, kind: "missing", reason };
 }
 
 // Shared games between the viewer and this player, from the 60 most recent on
@@ -719,41 +747,41 @@ function headToHead(info) {
 }
 
 // label: the name as looked up ("[TAG] name"); username: the bare name.
+// Native tooltip: the subject first, at most 8 lines, the action hint last.
 function tooltip(username, info, label = username) {
   const lines = [label];
-  lines.push(
-    `${info.wins} wins in ${info.games} public games (${info.winRate.toFixed(1)}%)`,
-  );
   const rank = ranked(info);
-  if (rank) {
-    lines.push(
-      `${rank.ratio.toFixed(2)}x the wins an average player would get in the same lobbies`,
-    );
-    lines.push(
-      `(${info.ratedWins} wins vs ${info.expectedWins.toFixed(1)} expected over ${info.ratedGames} rated games)`,
-    );
-  }
+  lines.push(
+    `${info.wins} wins in ${info.games} public games (${info.winRate.toFixed(1)}%)` +
+      (rank ? `, ${rank.ratio.toFixed(2)}x an average player's` : ""),
+  );
   const onMap = mapRank(info);
   if (onMap) {
     lines.push(
       `On ${onMap.map}: Top ${formatPercent(onMap.pct)}% (${onMap.ratio.toFixed(2)}x over ${onMap.games} games)`,
     );
   }
+  // per mode, on one line: "FFA 12/80 · Team 30/60"
+  const byKind = new Map();
   for (const mode of info.modes ?? []) {
-    if (mode.games > 0) lines.push(`  ${mode.mode}: ${mode.wins}/${mode.games}`);
+    if (!(mode.games > 0)) continue;
+    const k = modeKind(mode.mode);
+    const acc = byKind.get(k) ?? { wins: 0, games: 0 };
+    acc.wins += mode.wins ?? 0;
+    acc.games += mode.games;
+    byKind.set(k, acc);
   }
+  if (byKind.size) lines.push([...byKind].map(([k, v]) => `${k} ${v.wins}/${v.games}`).join(" · "));
   const f = form(info);
+  const spark = sparkline(info);
   if (f) {
     const note = f.hot ? " — on fire" : f.cold ? " — cold spell" : "";
-    const run = f.streak >= 2 ? `, ${f.streak} wins in a row` : "";
-    lines.push(`Form: ${f.wins} wins in last ${f.n}${run}${note}`);
-    const split = Object.entries(f.byMode)
-      .map(([k, v]) => `${k} ${v.wins}/${v.games}`)
-      .join(", ");
-    if (Object.keys(f.byMode).length > 1 || !f.byMode.FFA) lines.push(`  of those: ${split} (a team win counts like any other)`);
-  }
-  const spark = sparkline(info);
-  if (spark) lines.push(`Trend (old → new): ${spark}`);
+    const run = f.streak >= 2 ? `, ${f.streak} in a row` : "";
+    const split = Object.keys(f.byMode).length > 1 || !f.byMode.FFA
+      ? ` (${Object.entries(f.byMode).map(([k, v]) => `${k} ${v.wins}/${v.games}`).join(", ")})`
+      : "";
+    lines.push(`Form: ${f.wins} wins in last ${f.n}${split}${run}${note}${spark ? ` · trend ${spark}` : ""}`);
+  } else if (spark) lines.push(`Trend (old → new): ${spark}`);
   if (smurf(info)) {
     lines.push(
       `${icon("smurf")} Possible smurf: ${info.ratedWins} wins vs ${info.expectedWins.toFixed(1)} expected in only ${info.ratedGames} games`,
@@ -765,12 +793,7 @@ function tooltip(username, info, label = username) {
       `Met ${h2h.met} time${h2h.met === 1 ? "" : "s"} recently — you won ${h2h.iWon}, they won ${h2h.theyWon}`,
     );
   }
-  lines.push(
-    watchlist.has(username.toLowerCase())
-      ? `${icon("star")} On your watchlist — Shift+click to remove`
-      : "Shift+click to add to your watchlist",
-  );
-  lines.push("Matched by name — click for their stats");
+  lines.push(`Click: stats · Shift+click: ${watchlist.has(username.toLowerCase()) ? "unwatch" : "watch"}`);
   return lines.join("\n");
 }
 
@@ -805,7 +828,16 @@ function applyBadge(el, username, placeholder, info, clan = null) {
   else delete badge.dataset.ofrBand;
   if (formatted.reason) badge.dataset.ofrReason = formatted.reason;
   else delete badge.dataset.ofrReason;
-  badge.textContent = formatted.text;
+  // Text nodes and our own span only: the map rank is a separate segment.
+  const nodes = [document.createTextNode(formatted.main)];
+  if (formatted.seg) {
+    const s = document.createElement("span");
+    s.className = "ofr-badge-seg";
+    s.textContent = formatted.seg;
+    nodes.push(s);
+  }
+  if (formatted.flags) nodes.push(document.createTextNode(` ${formatted.flags}`));
+  badge.replaceChildren(...nodes);
   badge.title =
     formatted.kind === "missing"
       ? `${lookupName}\n${MISSING_TOOLTIP[formatted.reason] ?? ""}`
@@ -815,19 +847,16 @@ function applyBadge(el, username, placeholder, info, clan = null) {
     delete badge.dataset.ofrProfile;
     delete badge.dataset.ofrClan;
     badge.removeAttribute("role");
+    badge.tabIndex = -1;
   } else {
     badge.dataset.ofrProfile = username;
     badge.dataset.ofrClan = clan ?? "";
     badge.setAttribute("role", "link");
+    badge.tabIndex = 0; // Enter: stats, Shift+Enter: watch (see the keydown listener)
   }
-  if (watchlist.has(username.toLowerCase())) {
-    badge.dataset.ofrWatched = "true";
-    if (!badge.textContent.startsWith(icon("star"))) {
-      badge.textContent = `${icon("star")} ${badge.textContent}`;
-    }
-  } else {
-    delete badge.dataset.ofrWatched;
-  }
+  // The star itself comes from CSS (the theme's --ofr-star).
+  if (watchlist.has(username.toLowerCase())) badge.dataset.ofrWatched = "true";
+  else delete badge.dataset.ofrWatched;
 
   if (!existing) el.appendChild(badge);
   el.setAttribute(NAME_ATTR, lookupName);
@@ -836,31 +865,72 @@ function applyBadge(el, username, placeholder, info, clan = null) {
 async function toggleWatch(name) {
   const key = name.toLowerCase();
   if (watchlist.has(key)) watchlist.delete(key);
-  else watchlist.add(key);
+  else {
+    watchlist.add(key);
+    // You just starred them here: no "is in this lobby" toast and sound on top.
+    announced.add(`${location.pathname}|${key}`);
+  }
+  // Re-badge in place so the star shows (or goes) everywhere at once, without
+  // emptying the lobby.
+  rebadgeInPlace();
+  toast(
+    watchlist.has(key)
+      ? `${icon("star")} Watching ${name}`
+      : `Removed ${name} from your watchlist`,
+    { tone: "info" },
+  );
   try {
     await chrome.storage.sync.set({ watchlist: [...watchlist] });
   } catch {
     // storage unavailable; the change still applies for this page
   }
-  // Re-badge everything so the star shows (or goes) everywhere at once.
-  for (const el of document.querySelectorAll(`[${NAME_ATTR}]`)) {
-    el.removeAttribute(NAME_ATTR);
-  }
-  scheduleRefresh();
-  toast(
-    watchlist.has(key)
-      ? `${icon("star")} Watching ${name}`
-      : `Removed ${name} from your watchlist`,
-  );
 }
 
-// A small transient message in the page's corner.
-function toast(text, sticky = false) {
+// Every badge the last scan placed, re-drawn from what is already known: a
+// watchlist or theme change never empties and refills the lobby.
+function rebadgeInPlace() {
+  // The same gate as refresh(): off, or no consent, draws nothing - `known` and
+  // `roster` outlive a cleared lobby and would bring a stale summary back.
+  if (!settings.enabled || !settings.dataConsent) return;
+  for (const t of collectTargets()) {
+    if (t.el.getAttribute(NAME_ATTR) !== t.lookupName) continue; // not scanned yet
+    const info = t.placeholder ? null : known.get(t.lookupName.toLowerCase());
+    if (!t.placeholder && !info) continue;
+    applyBadge(t.el, t.username, t.placeholder, info, t.clan);
+  }
+  renderSummary();
+  renderTeamSummaries();
+  markThreats();
+}
+
+// Small transient messages, stacked at the bottom centre of the page.
+const TOAST_MAX = 3;
+function toast(text, { tone = "info", sticky = false } = {}) {
+  let stack = document.body.querySelector(":scope > .ofr-toasts");
+  if (!stack) {
+    stack = document.createElement("div");
+    stack.className = "ofr-toasts";
+    stack.setAttribute("role", "status");
+    stack.setAttribute("aria-live", "polite");
+    document.body.appendChild(stack);
+  }
   const el = document.createElement("div");
   el.className = "ofr-toast";
+  el.dataset.tone = tone;
   el.textContent = text;
-  document.body.appendChild(el);
-  if (!sticky) setTimeout(() => el.remove(), 4000);
+  stack.appendChild(el);
+  while (stack.children.length > TOAST_MAX) stack.firstElementChild.remove();
+  if (!sticky) {
+    setTimeout(() => {
+      el.dataset.out = "true";
+      const remove = () => {
+        el.remove();
+        if (!stack.childElementCount) stack.remove();
+      };
+      el.addEventListener("transitionend", remove, { once: true });
+      setTimeout(remove, 400); // a 0 ms transition (reduced motion) fires no transitionend
+    }, 4000);
+  }
   return el;
 }
 
@@ -1123,12 +1193,17 @@ async function loadRecap(gameId) {
       return;
     }
     widget.setMessage(
-      attempt <= 2
-        ? "Fetching the game record…"
-        : attempt <= QUICK
-          ? `Waiting for OpenFront to publish this game (try ${attempt} of ${QUICK})…`
-          : "Not published yet - OpenFront archives a game when it ends, so if it is still going this fills in afterwards.",
-      { meta },
+      attempt <= 2 ? "Fetching record…" : attempt <= QUICK ? `Waiting for OpenFront… ${attempt}/${QUICK}` : "Waiting for the game to end…",
+      {
+        meta,
+        kind: "loading",
+        detail:
+          attempt <= 2
+            ? "Fetching the game record from OpenFront"
+            : attempt <= QUICK
+              ? `Waiting for OpenFront to publish this game (try ${attempt} of ${QUICK})`
+              : "Not published yet. OpenFront archives a game when it ends, so this fills in once it is over.",
+      },
     );
     let record = null;
     try {
@@ -1158,13 +1233,20 @@ async function loadRecap(gameId) {
     }
     if (record?.error) {
       if (++errors >= 3) {
-        widget.setMessage(`OpenFront's API answered "${record.error}".`, { meta, retry: () => loadRecap(gameId) });
+        widget.setMessage("Server error", {
+          meta,
+          title: "Couldn't load the record",
+          detail: `OpenFront's server returned an error. Try again in a minute.\nOpenFront's API answered "${record.error}".`,
+          retry: () => loadRecap(gameId),
+        });
         return;
       }
     } else errors = 0;
     if (attempt >= MAX) {
-      widget.setMessage("OpenFront never published a record for this game (single-player games are not archived).", {
+      widget.setMessage("Not published", {
         meta,
+        title: "No record",
+        detail: "OpenFront hasn't published it. Single-player games are never archived.",
         retry: () => loadRecap(gameId),
       });
       return;
@@ -1203,8 +1285,8 @@ function checkAutoCopy() {
   if (lobby.startsIn > 10 || autoCopied.has(key) || roster.size === 0) return;
   autoCopied.add(key);
   navigator.clipboard.writeText(lobbyReport()).then(
-    () => toast("Scouting report copied to the clipboard"),
-    () => toast("Could not copy the report (click the page first)"),
+    () => toast("Scouting report copied to the clipboard", { tone: "ok" }),
+    () => toast("Could not copy the report. Click the page once, then copy it by hand.", { tone: "error" }),
   );
 }
 
@@ -1405,6 +1487,32 @@ window.addEventListener(
   true,
 );
 
+// The keyboard route to the same two things: a focused badge (Enter: stats,
+// Shift+Enter: watch) and the focused map preview (Enter / Space: enlarge).
+// Only when one of OUR elements has focus, so the game's own keys are untouched.
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (!alive() || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+    const badge = e.target?.closest?.(`.${BADGE_CLASS}[data-ofr-profile]`);
+    if (badge && e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) toggleWatch(badge.dataset.ofrProfile);
+      else if (settings.profileLink !== "none") openDashboard(badge.dataset.ofrProfile, badge.dataset.ofrClan);
+      return;
+    }
+    const preview = e.target?.closest?.(`.${PREVIEW_CLASS}`);
+    if (preview && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      e.stopPropagation();
+      const current = readMapInfo();
+      if (current && typeof globalThis.__ofrOpenMapViewer === "function") globalThis.__ofrOpenMapViewer(current);
+    }
+  },
+  true,
+);
+
 function clearDecorations() {
   for (const el of document.querySelectorAll(
     `.${BADGE_CLASS}, .${SUMMARY_CLASS}, .${PREVIEW_CLASS}`,
@@ -1454,7 +1562,8 @@ function clanGroups() {
     .sort((a, b) => a.avg - b.avg);
 }
 
-function lobbySummary(withClans = true) {
+// The numbers behind the summary line: null when nobody in the room is ranked.
+function lobbyStats() {
   const infos = [];
   let unranked = 0;
   for (const entry of roster.values()) {
@@ -1463,15 +1572,18 @@ function lobbySummary(withClans = true) {
     else unranked++;
   }
   if (infos.length === 0) return null;
-
   const avg = averagePercent(infos);
-  const elite = infos.filter(
-    (i) => percentBand(ranked(i).pct) === "elite",
-  ).length;
+  const elite = infos.filter((i) => percentBand(ranked(i).pct) === "elite").length;
+  return { avg, elite, unranked };
+}
 
-  const parts = [`avg Top ${formatPercent(avg)}%`];
-  if (elite > 0) parts.push(`${elite} elite`);
-  if (unranked > 0) parts.push(`${unranked} unranked`);
+// "avg Top 38% · 2 elite · 2 unranked" (+ clans): the Discord report's line.
+function lobbySummary(withClans = true) {
+  const stats = lobbyStats();
+  if (!stats) return null;
+  const parts = [`avg Top ${formatPercent(stats.avg)}%`];
+  if (stats.elite > 0) parts.push(`${stats.elite} elite`);
+  if (stats.unranked > 0) parts.push(`${stats.unranked} unranked`);
 
   if (withClans) {
     for (const g of clanGroups().slice(0, 3)) {
@@ -1480,6 +1592,14 @@ function lobbySummary(withClans = true) {
   }
 
   return parts.join(" · ");
+}
+
+// "Top 38%" in its band colour, for the summary lines.
+function bandedPercent(pct) {
+  const b = document.createElement("b");
+  b.dataset.ofrBand = percentBand(pct);
+  b.textContent = `Top ${formatPercent(pct)}%`;
+  return b;
 }
 
 // Closed lobby modals stay in the DOM with their player lists; decorating one of
@@ -1497,28 +1617,44 @@ function renderSummary() {
   if (!settings.showSummary) return;
   const list = visiblePlayersList();
   if (!list) return;
-  const text = lobbySummary(!settings.clanStats);
+  const stats = lobbyStats();
   const host = list.parentElement ?? list;
-  let el = host.querySelector(`:scope > .${SUMMARY_CLASS}`);
+  let el = host.querySelector(`:scope > .${SUMMARY_CLASS}:not(.ofr-team-avg)`);
 
-  if (!text) {
-    el?.remove();
-    return;
+  if (!stats || (el && !el.querySelector(".ofr-summary-label"))) {
+    el?.remove(); // nothing to say, or a line an older version left in the old shape
+    el = null;
+    if (!stats) return;
   }
   if (!el) {
     el = document.createElement("div");
-    el.className = SUMMARY_CLASS;
+    el.className = `${SUMMARY_CLASS} ofr-card`;
     const label = document.createElement("span");
-    label.className = "ofr-summary-text";
+    label.className = "ofr-summary-label ofr-eyebrow";
+    label.textContent = "Lobby";
+    const text = document.createElement("span");
+    text.className = "ofr-summary-text";
     const copy = document.createElement("button");
-    copy.className = "ofr-copy";
+    copy.className = "ofr-btn ofr-btn-sm ofr-copy";
     copy.type = "button";
-    copy.textContent = "Copy";
+    copy.textContent = "Copy report";
     copy.title = "Copy this lobby's roster with ranks, formatted for Discord";
-    el.append(label, copy);
+    el.append(label, text, copy);
     host.insertBefore(el, list);
   }
-  el.querySelector(".ofr-summary-text").textContent = text;
+  // "avg Top 38% · 2 elite · 2 unranked", the average in its band colour;
+  // clan parts only when the chips are off.
+  const tail = [];
+  if (stats.elite > 0) tail.push(`${stats.elite} elite`);
+  if (stats.unranked > 0) tail.push(`${stats.unranked} unranked`);
+  if (!settings.clanStats) {
+    for (const g of clanGroups().slice(0, 3)) tail.push(`[${g.tag}] ×${g.n} Top ${formatPercent(g.avg)}%`);
+  }
+  el.querySelector(".ofr-summary-text").replaceChildren(
+    document.createTextNode("avg "),
+    bandedPercent(stats.avg),
+    ...(tail.length ? [document.createTextNode(` · ${tail.join(" · ")}`)] : []),
+  );
 
   // Clan chips: click one to open the dashboard on that clan (via its strongest
   // player in the room), with the clan's own ofstats record.
@@ -1528,8 +1664,8 @@ function renderSummary() {
     for (const g of clanGroups().slice(0, 4)) {
       const chip = document.createElement("button");
       chip.type = "button";
-      chip.className = "ofr-clan-chip";
-      chip.textContent = `[${g.tag}] x${g.n} Top ${formatPercent(g.avg)}%`;
+      chip.className = "ofr-chip ofr-clan-chip";
+      chip.textContent = `[${g.tag}] ×${g.n} · Top ${formatPercent(g.avg)}%`;
       const names = settings.streamerMode ? g.names.map((n) => (isSelf(n) ? "You" : n)) : g.names;
       chip.title = `Clan ${g.tag}: ${names.join(", ")} - click for clan stats`;
       chip.dataset.ofrClan = g.tag;
@@ -1613,40 +1749,64 @@ window.addEventListener(
     e.stopPropagation();
     try {
       await navigator.clipboard.writeText(lobbyReport());
-      button.textContent = "Copied";
+      button.dataset.state = "ok";
+      button.textContent = "Copied ✓";
     } catch {
-      button.textContent = "Copy failed";
+      button.dataset.state = "error";
+      button.textContent = "Failed";
+      toast("Could not copy the report. Click the page once, then try again.", { tone: "error" });
     }
-    setTimeout(() => (button.textContent = "Copy"), 1500);
+    setTimeout(() => {
+      delete button.dataset.state;
+      button.textContent = "Copy report";
+    }, 1500);
   },
   true,
 );
 
 // Per-team averages, so you can see before the game starts whether your side is
 // outmatched. Team cards are the rounded blocks inside the players list.
+// Sits right under the team's header; the clearly stronger side gets a chip.
+const TEAM_EDGE_GAP = 10; // percentile points between the best side and the next
 function renderTeamSummaries() {
   if (!settings.showSummary) return;
+  const sides = [];
   for (const card of document.querySelectorAll(".players-list div.rounded-xl")) {
     const infos = [];
     for (const el of card.querySelectorAll(`[${NAME_ATTR}]`)) {
       const info = known.get(el.getAttribute(NAME_ATTR).toLowerCase());
       if (info?.found && ranked(info)) infos.push(info);
     }
-    let el = card.querySelector(`:scope > .${SUMMARY_CLASS}`);
+    let el = card.querySelector(`:scope > .ofr-team-avg`);
     if (infos.length < 2) {
       el?.remove();
       continue;
     }
     if (!el) {
       el = document.createElement("div");
-      el.className = SUMMARY_CLASS;
-      card.appendChild(el);
+      el.className = `${SUMMARY_CLASS} ofr-team-avg`;
+      if (card.firstElementChild) card.firstElementChild.after(el);
+      else card.appendChild(el);
     }
-    el.textContent = `team avg Top ${formatPercent(averagePercent(infos))}%`;
+    const avg = averagePercent(infos);
+    el.replaceChildren(document.createTextNode("avg "), bandedPercent(avg));
+    sides.push({ el, avg });
+  }
+  // lower percentile = stronger
+  if (sides.length >= 2) {
+    const [best, next] = [...sides].sort((a, b) => a.avg - b.avg);
+    if (next.avg - best.avg >= TEAM_EDGE_GAP) {
+      const chip = document.createElement("span");
+      chip.className = "ofr-chip ofr-team-edge";
+      chip.dataset.tone = "bad";
+      chip.textContent = "stronger";
+      chip.title = `This side's average is ${Math.round(next.avg - best.avg)} points better than the next`;
+      best.el.append(chip);
+    }
   }
 }
 
-// The strongest players in the room get their row outlined: the people worth
+// The strongest players in the room get their badge filled: the people worth
 // not bordering early.
 const THREAT_COUNT = 2;
 
@@ -1677,7 +1837,7 @@ function markThreats() {
     // should light up just for being the least bad.
     const band = percentBand(pct);
     if (band !== "elite" && band !== "strong") continue;
-    for (const el of els) el.classList.add(THREAT_CLASS);
+    for (const el of els) el.querySelector(`:scope > .${BADGE_CLASS}`)?.classList.add(THREAT_CLASS);
   }
 }
 
@@ -1776,13 +1936,20 @@ function renderMapPreview() {
     return;
   }
 
+  if (el && !el.querySelector(".ofr-map-name")) {
+    el.remove(); // left by an older version of this script, in the old shape
+    el = null;
+  }
   if (!el) {
     el = document.createElement("div");
-    el.className = PREVIEW_CLASS;
+    el.className = `${PREVIEW_CLASS} ofr-card`;
+    el.tabIndex = 0;
+    el.setAttribute("role", "button");
+    // static skeleton only; every text below is set with textContent
     el.innerHTML =
       '<img alt="" referrerpolicy="no-referrer">' +
-      '<div class="ofr-map-meta"></div>' +
-      '<div class="ofr-map-zoom">Click to enlarge</div>';
+      '<div class="ofr-map-meta"><div class="ofr-map-name"></div><div class="ofr-map-sub"></div></div>' +
+      '<div class="ofr-map-zoom" aria-hidden="true">⤢<span> Enlarge</span></div>';
     host.insertBefore(el, host.firstChild);
   }
 
@@ -1791,13 +1958,16 @@ function renderMapPreview() {
     img.setAttribute("src", info.thumbnail);
     img.alt = info.map;
   }
+  el.setAttribute("aria-label", `Enlarge the ${info.map} map`);
+  el.title = "Click or press Enter to enlarge";
 
-  const meta = [info.map];
-  if (info.mode) meta.push(info.mode);
-  if (info.difficulty) meta.push(info.difficulty);
-  if (info.maxPlayers) meta.push(`${info.maxPlayers} players`);
-  if (info.bots) meta.push(`${info.bots} tribes`);
-  el.querySelector(".ofr-map-meta").textContent = meta.join(" · ");
+  const sub = [];
+  if (info.mode) sub.push(info.mode);
+  if (info.difficulty) sub.push(info.difficulty);
+  if (info.maxPlayers) sub.push(`${info.maxPlayers} players`);
+  if (info.bots) sub.push(`${info.bots} tribes`);
+  el.querySelector(".ofr-map-name").textContent = info.map;
+  el.querySelector(".ofr-map-sub").textContent = sub.join(" · ");
 }
 
 // A one-line summary in the page console and in storage, so "I don't see any
@@ -1819,6 +1989,10 @@ function report(detail) {
     // extension reloading; the next scan reports again
   }
 }
+
+// One pending retry after a lookup that got no answer at all (markOffline).
+const OFFLINE_RETRY_MS = 5000;
+let offlineRetry = null;
 
 async function refresh() {
   if (!settings.enabled) return;
@@ -1860,7 +2034,9 @@ async function refresh() {
   );
   if (stale.length === 0) return;
   for (const { el } of stale) {
-    el.querySelector(`:scope > .${BADGE_CLASS}`)?.remove();
+    const old = el.querySelector(`:scope > .${BADGE_CLASS}`);
+    // an unstamped "offline" is a retry (markOffline): it stays until the answer
+    if (old && !(old.dataset.ofrReason === "error" && !el.hasAttribute(NAME_ATTR))) old.remove();
   }
 
   // A placeholder name is answered locally — no request for a name that cannot
@@ -1883,12 +2059,42 @@ async function refresh() {
   }
   if (usernames.length === 0) return;
 
+  // A quiet "···" while the lookup runs, so a row is never blank for no reason.
+  // applyBadge reuses it: it is the cell's own badge.
+  for (const { el } of lookups) {
+    if (!el.isConnected || el.querySelector(`:scope > .${BADGE_CLASS}`)) continue;
+    if (settings.streamerMode && isSelf(readName(el))) continue;
+    const pending = document.createElement("span");
+    pending.className = BADGE_CLASS;
+    pending.dataset.ofrKind = "pending";
+    pending.textContent = "···";
+    pending.title = "Looking this player up on ofstats.io…";
+    el.appendChild(pending);
+  }
+  // No answer at all (the worker asleep or restarting): every row says
+  // "offline", with the reason in its tooltip. The rows are left unstamped, as
+  // not really looked up, and a scan a few seconds later asks again.
+  const markOffline = () => {
+    for (const { el, username, clan, lookupName } of lookups) {
+      if (!el.isConnected || readStatsName(el) !== lookupName) continue;
+      applyBadge(el, username, null, { reason: "error" }, clan);
+      el.removeAttribute(NAME_ATTR);
+    }
+    if (!offlineRetry) {
+      offlineRetry = setTimeout(() => {
+        offlineRetry = null;
+        scheduleRefresh();
+      }, OFFLINE_RETRY_MS);
+    }
+  };
+
   let results;
   try {
     results = await chrome.runtime.sendMessage({ type: "lookup", usernames });
   } catch (err) {
     // The worker does the fetching (ofstats sends no CORS header, so a
     // page-context fetch cannot), which makes a dead worker fatal — say so.
+    markOffline();
     report({
       lookupFailed: err?.message ?? String(err),
       wanted: usernames.length,
@@ -1896,6 +2102,7 @@ async function refresh() {
     return;
   }
   if (!results) {
+    markOffline();
     report({
       lookupFailed:
         chrome.runtime.lastError?.message ?? "worker returned nothing",
@@ -1965,6 +2172,7 @@ function isOurMutation(mutation) {
           n.classList?.contains("ofr-dash") ||
           n.classList?.contains("ofr-recap") ||
           n.classList?.contains("ofr-chat-host") ||
+          n.classList?.contains("ofr-toasts") ||
           n.classList?.contains("ofr-toast")),
     )
   );
@@ -1977,6 +2185,7 @@ const observer = new MutationObserver((mutations) => {
 
 // The map can change without the player list changing (the host switches maps),
 // and page-probe.js signals that by rewriting this attribute.
+let badgedMap = null; // the map the badges' "map 0.5%" segments were drawn for
 const mapObserver = new MutationObserver(() => {
   if (!alive()) return;
   noteClientId();
@@ -1984,6 +2193,13 @@ const mapObserver = new MutationObserver(() => {
   if (!settings.enabled) return; // "everything off": no map preview, no auto-copy
   renderMapPreview();
   checkAutoCopy();
+  // The host switched maps (or the map arrived after the names): the per-map
+  // segment follows, in place.
+  const map = readMapInfo()?.map ?? null;
+  if (map && map !== badgedMap) {
+    badgedMap = map;
+    if (settings.showMapRank && settings.dataConsent) rebadgeInPlace();
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -2008,9 +2224,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes.enabled || changes.dataConsent) installHomeWidget();
   if (changes.layout || changes.uiSize || changes.siteLayout) applyLayout();
-  clearDecorations();
-  if (settings.enabled) scheduleRefresh();
+  // Only a change to WHAT is shown rebuilds the decorations. A star or a theme
+  // re-draws them in place, so the lobby never empties and refills.
+  if (Object.keys(changes).some((k) => REBUILD.has(k))) {
+    clearDecorations();
+    if (settings.enabled) scheduleRefresh();
+  } else if (changes.watchlist || changes.theme) rebadgeInPlace();
 });
+const REBUILD = new Set(["enabled", "dataConsent", "explainMissing", "showGames", "showSummary", "markThreats",
+  "showMapPreview", "showMapRank", "showForm", "flagSmurfs", "clanStats", "streamerMode"]);
 
 (async function init() {
   try {

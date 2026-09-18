@@ -100,31 +100,42 @@
   }
 
   function open(info) {
+    // A viewer already open is closed properly, so its listeners, observer and
+    // scroll lock go with it (a bare remove() left them behind).
     const existing = document.querySelector(".ofr-viewer");
-    if (existing) existing.remove();
+    if (typeof existing?.__ofrClose === "function") existing.__ofrClose();
+    else existing?.remove();
 
     const root = document.createElement("div");
     root.className = "ofr-viewer";
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    // static markup only; the map name goes in with textContent below
     root.innerHTML = `
       <div class="ofr-viewer-bar">
         <span class="ofr-viewer-title"></span>
         <span class="ofr-viewer-hint">scroll to zoom · drag to pan · Esc to close</span>
-        <button class="ofr-viewer-btn" data-act="out">−</button>
-        <button class="ofr-viewer-btn" data-act="in">+</button>
-        <button class="ofr-viewer-btn" data-act="fit">Fit</button>
-        <button class="ofr-viewer-btn" data-act="close">✕</button>
+        <button type="button" class="ofr-btn ofr-viewer-btn" data-act="out" aria-label="Zoom out" title="Zoom out (−)">−</button>
+        <button type="button" class="ofr-btn ofr-viewer-btn" data-act="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <button type="button" class="ofr-btn ofr-viewer-btn" data-act="fit" aria-label="Fit to screen" title="Fit to screen (0)">Fit</button>
+        <button type="button" class="ofr-btn ofr-btn-icon ofr-viewer-btn" data-act="close" aria-label="Close map" title="Close (Esc)">✕</button>
       </div>
       <div class="ofr-viewer-stage"><canvas></canvas></div>
       <div class="ofr-viewer-status">Loading full-resolution terrain…</div>`;
     document.body.appendChild(root);
+    const returnFocus = document.activeElement;
+    // the page underneath stops scrolling while this is open (content.css)
+    document.documentElement.dataset.ofrModal = "viewer";
 
     root.querySelector(".ofr-viewer-title").textContent = info.map;
+    root.setAttribute("aria-label", `${info.map} map`);
     const stage = root.querySelector(".ofr-viewer-stage");
     const canvas = root.querySelector("canvas");
     const ctx = canvas.getContext("2d");
     const status = root.querySelector(".ofr-viewer-status");
 
     let terrain = null;
+    let full = false; // the real terrain, not the lobby thumbnail
     let scale = 1;
     let originX = 0;
     let originY = 0;
@@ -142,7 +153,11 @@
     function fit() {
       if (!terrain) return;
       const rect = stage.getBoundingClientRect();
-      scale = Math.min(rect.width / terrain.width, rect.height / terrain.height);
+      const pad = 24; // a margin all round, so the map never touches the bars
+      scale = Math.max(
+        MIN_SCALE,
+        Math.min((rect.width - 2 * pad) / terrain.width, (rect.height - 2 * pad) / terrain.height),
+      );
       originX = (rect.width - terrain.width * scale) / 2;
       originY = (rect.height - terrain.height * scale) / 2;
       draw();
@@ -159,8 +174,9 @@
         0,
         0,
       );
-      ctx.fillStyle = "#0b0d12";
-      ctx.fillRect(0, 0, rect.width, rect.height);
+      // transparent: the stage behind the canvas carries the theme's colour
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      if (terrain && full) status.textContent = `${terrain.width} × ${terrain.height} tiles · ${Math.round(scale * 100)}%`;
       if (terrain) {
         // Nearest-neighbour, like the game's own terrain texture: zooming in
         // should show crisp tiles rather than a smeared blur.
@@ -189,10 +205,16 @@
       draw();
     }
 
+    let closed = false;
     function close() {
+      if (closed) return;
+      closed = true;
       window.removeEventListener("resize", onResize);
       document.removeEventListener("keydown", onKey, true);
+      ro.disconnect();
       root.remove();
+      if (document.documentElement.dataset.ofrModal === "viewer") delete document.documentElement.dataset.ofrModal;
+      if (returnFocus?.isConnected && typeof returnFocus.focus === "function") returnFocus.focus({ preventScroll: true });
     }
 
     function onResize() {
@@ -200,11 +222,33 @@
       draw();
     }
 
+    function zoomCentre(factor) {
+      const rect = stage.getBoundingClientRect();
+      zoomAt(factor, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
+
+    // Keys while the viewer is open: Esc closes, + / = zoom in, - zooms out, 0 fits.
+    // Captured and stopped, so the game behind never sees them.
     function onKey(e) {
-      if (e.key === "Escape") {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // aria-modal: Tab cycles through the viewer's own buttons, never the page behind
+      if (e.key === "Tab") {
+        const stops = [...root.querySelectorAll("button")];
+        if (!stops.length) return;
+        const at = stops.indexOf(document.activeElement);
+        const next = at === -1 ? 0 : (at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length;
+        e.preventDefault();
         e.stopPropagation();
-        close();
+        stops[next].focus({ preventScroll: true });
+        return;
       }
+      const act = { Escape: "close", "+": "in", "=": "in", "-": "out", _: "out", 0: "fit" }[e.key];
+      if (!act) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (act === "close") close();
+      else if (act === "fit") fit();
+      else zoomCentre(act === "in" ? 1.4 : 1 / 1.4);
     }
 
     stage.addEventListener(
@@ -240,31 +284,50 @@
     stage.addEventListener("pointercancel", endDrag);
 
     root.addEventListener("click", (e) => {
-      const act = e.target?.dataset?.act;
+      const act = e.target?.closest?.("[data-act]")?.dataset?.act;
       if (act === "close" || e.target === root) close();
       if (act === "fit") fit();
-      const rect = stage.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      if (act === "in") zoomAt(1.4, cx, cy);
-      if (act === "out") zoomAt(1 / 1.4, cx, cy);
+      if (act === "in") zoomCentre(1.4);
+      if (act === "out") zoomCentre(1 / 1.4);
     });
 
     document.addEventListener("keydown", onKey, true);
     window.addEventListener("resize", onResize);
     // The stage can change size without the window doing so (the page relayouts
     // underneath); keep the canvas backing store in step.
-    new ResizeObserver(() => {
+    const ro = new ResizeObserver(() => {
       resize();
       draw();
-    }).observe(stage);
+    });
+    ro.observe(stage);
+    root.__ofrClose = close;
     resize();
     draw();
+    root.querySelector('[data-act="close"]').focus({ preventScroll: true });
+
+    // The lobby thumbnail at once, so the view is never empty; the real terrain
+    // replaces it when it arrives.
+    const showThumbnail = (then) => {
+      if (!info.thumbnail) return;
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        if (full) return; // the terrain won the race
+        terrain = { source: img, width: img.naturalWidth, height: img.naturalHeight };
+        requestAnimationFrame(() => {
+          resize();
+          fit();
+        });
+        then?.();
+      };
+      img.src = info.thumbnail;
+    };
+    showThumbnail();
 
     loadTerrain(info)
       .then((loaded) => {
         terrain = loaded;
-        status.textContent = `${loaded.width} × ${loaded.height} tiles`;
+        full = true;
         // Fit on the next frame: measuring the stage in the same tick as the
         // load can read a rect the browser has not laid out yet, which opens
         // the map part-zoomed instead of fitted.
@@ -274,15 +337,9 @@
         });
       })
       .catch((err) => {
-        status.textContent = `Could not load terrain (${err.message}). Showing the thumbnail instead.`;
-        if (!info.thumbnail) return;
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-          terrain = { source: img, width: img.naturalWidth, height: img.naturalHeight };
-          fit();
-        };
-        img.src = info.thumbnail;
+        status.textContent = "Full-resolution terrain is unavailable, so this is the lobby preview.";
+        status.title = err?.message ?? String(err);
+        if (!terrain) showThumbnail();
       });
   }
 

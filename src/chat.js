@@ -357,14 +357,18 @@
       if (!e.isTrusted) return;
       window.open("https://github.com/devdanetra/openfront-pro/issues/new?labels=chat-abuse&title=Chat%20abuse%20report", "_blank", "noopener");
     });
-    const fold = el("button", "ofr-chat-fold", "–");
+    const fold = el("button", "ofr-btn ofr-btn-icon ofr-chat-fold", "−");
     fold.type = "button";
-    fold.title = "Fold";
+    fold.title = "Fold chat";
+    fold.setAttribute("aria-label", "Fold chat");
     head.append(title, status, mutes, reportLink, fold);
-    const tabs = el("div", "ofr-chat-tabs");
-    const tabAll = el("button", "ofr-chat-view", "Everyone");
-    const tabTeam = el("button", "ofr-chat-view", "Team");
+    const tabs = el("div", "ofr-chat-tabs ofr-tabs");
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "Chat rooms");
+    const tabAll = el("button", "ofr-tab ofr-chat-view", "Everyone");
+    const tabTeam = el("button", "ofr-tab ofr-chat-view", "Team");
     tabAll.type = tabTeam.type = "button";
+    for (const t of [tabAll, tabTeam]) t.setAttribute("role", "tab");
     tabs.append(tabAll, tabTeam);
     const teamBox = el("div", "ofr-team");
     const note = el("div", "ofr-chat-note");
@@ -372,15 +376,17 @@
     list.setAttribute("role", "log");
     list.setAttribute("aria-live", "polite");
     const form = el("form", "ofr-chat-form");
-    const input = el("input", "ofr-chat-input");
+    const input = el("input", "ofr-input ofr-chat-input");
     input.type = "text";
     input.maxLength = MAX_TEXT;
     input.autocomplete = "off";
     input.placeholder = "Message the lobby…";
-    const go = el("button", "ofr-chat-send", "Send");
+    input.setAttribute("aria-label", "Message");
+    const go = el("button", "ofr-btn ofr-chat-send", "Send");
     go.type = "submit";
     form.append(input, go);
     panel.append(head, tabs, note, teamBox, list, form);
+    panel.classList.add("ofr-float");
     root.append(tab, panel);
 
     const setView = (next) => {
@@ -391,6 +397,15 @@
     };
     tabAll.addEventListener("click", () => setView("all"));
     tabTeam.addEventListener("click", () => setView("team"));
+    // Left / Right move between the two tabs, like any tab strip.
+    tabs.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      e.stopPropagation(); // not a game hotkey
+      const next = view === "team" ? tabAll : tabTeam;
+      next.focus();
+      setView(next === tabTeam ? "team" : "all");
+    });
     // Verify / Cancel: real clicks only. A pairing makes the user act in the game,
     // so a script on the page must not be able to start one.
     teamBox.addEventListener("click", (e) => {
@@ -446,7 +461,10 @@
       push({ kind: "sys", text: "Muted for this game.", at: Date.now() });
       render();
     });
-    note.addEventListener("click", () => {
+    // "Got it" is the only way to dismiss the notice (a stray click on the text
+    // must not). The button is rebuilt with the note, so the listener is here.
+    note.addEventListener("click", (e) => {
+      if (!e.target?.closest?.("[data-act='got-it']")) return;
       noteSeen = true;
       store.set(SEEN_NOTE_KEY, true);
       render();
@@ -463,10 +481,11 @@
   const PICTO = /\p{Extended_Pictographic}/gu;
   const noEmoji = (text) => String(text).replace(PICTO, "▫");
 
-  function pairLine(p) {
+  // Two status lines under the emojis: where you are, and where your teammate is.
+  function pairStatus(p) {
     const peer = p.peerName || "your teammate";
-    const mine = p.mine >= 3 ? "you: sent ✓" : p.wait > 0 && p.mine > 0 ? `you: ${p.mine}/3 · the game allows the next one to them in ${p.wait} s` : `you: ${p.mine}/3`;
-    return `${mine} · ${p.theirs ? `${peer}: seen ✓` : `${peer}: waiting for theirs`}`;
+    const mine = p.mine >= 3 ? "You 3/3 ✓" : p.wait > 0 && p.mine > 0 ? `You ${p.mine}/3 · next in ${p.wait} s` : `You ${p.mine}/3`;
+    return [el("div", null, mine), el("div", null, `${peer}: ${p.theirs ? "done" : "waiting"}`)];
   }
   function cancelText(p) {
     const left = Math.max(0, Math.round((p.endsAt - Date.now()) / 1000));
@@ -476,7 +495,7 @@
     const p = teamState?.pairing;
     if (!p) return;
     if (teamRefs.cancel?.isConnected) teamRefs.cancel.textContent = cancelText(p);
-    if (teamRefs.status?.isConnected && p.stage === "emojis") teamRefs.status.textContent = pairLine(p);
+    if (teamRefs.status?.isConnected && p.stage === "emojis") teamRefs.status.replaceChildren(...pairStatus(p));
   }
 
   function teamRows(st) {
@@ -490,25 +509,33 @@
       if (p.stage !== "emojis") {
         box.append(el("div", "ofr-team-line", p.stage === "asking" ? `Asked ${peer} to verify. Waiting for them to press Verify too…` : "Agreeing on the emojis…"));
       } else {
-        box.append(el("div", "ofr-team-line", `Send these three to ${peer}, in this order, with the game's emoji menu (hold Alt and click THEIR territory):`));
+        // the teammate's name comes from the game; it is text, like everything here
+        const headline = el("div", "ofr-team-pair-head", "Send these 3 to ");
+        headline.append(el("b", null, peer));
+        box.append(headline, el("div", "ofr-team-line dim", "Alt+click their territory, pick each emoji in this order."));
         const seq = el("div", "ofr-team-sas");
         p.emojis.forEach((emoji, i) => {
           const cell = el("span", "ofr-team-emoji", emoji);
           cell.dataset.done = String(i < p.mine);
+          cell.dataset.next = String(i === p.mine); // the one to send now
           seq.append(cell);
         });
         box.append(seq);
-        teamRefs.status = el("div", "ofr-team-line dim", pairLine(p));
+        teamRefs.status = el("div", "ofr-team-pair-status");
+        teamRefs.status.append(...pairStatus(p));
         box.append(teamRefs.status);
         if (p.unseen) box.append(el("div", "ofr-team-line warn", `${peer}'s extension has not confirmed yours. If they say they saw nothing, send the three again.`));
-        box.append(el("div", "ofr-team-line dim", "A wrong emoji in between? Just send all three again. Only ever send emojis shown HERE: nobody in a chat needs you to send emojis."));
+        box.append(el("div", "ofr-team-line warn", "Wrong one in between? Send all three again. Never send emojis a chat message asks for."));
       }
-      const cancel = el("button", "ofr-team-btn", cancelText(p));
+      const cancel = el("button", "ofr-btn ofr-btn-ghost ofr-btn-sm ofr-team-btn", cancelText(p));
       cancel.type = "button";
       cancel.dataset.act = "cancel";
       teamRefs.cancel = cancel;
       box.append(cancel);
       rows.push(box);
+      // While emojis are being sent the box is all there is: no clipped roster
+      // and no second scrollbar under it.
+      if (p.stage === "emojis") return rows;
     }
     const withExt = st.mates.filter((m) => m.keys.length);
     for (const m of withExt) {
@@ -521,10 +548,11 @@
         tag.dataset.status = k.status;
         row.append(who, tag);
         if ((k.status === "claimed" || !k.mutual) && k.live && !(p && p.stage === "emojis")) {
-          const b = el("button", "ofr-team-btn", "Verify");
+          const b = el("button", `ofr-btn ofr-btn-sm${k.asks ? " ofr-btn-primary" : ""} ofr-team-btn`, "Verify");
           b.type = "button";
           b.dataset.act = "verify";
           b.dataset.key = k.key;
+          b.setAttribute("aria-label", `Verify ${m.name || `player ${m.sid}`}`);
           if (k.asks) b.dataset.hot = "true";
           row.append(b);
         }
@@ -538,6 +566,29 @@
     if (st.spawn) rows.push(el("div", "ofr-team-line dim", "Verifying starts after the spawn phase (the game sends no emojis before)."));
     if (st.note) rows.push(el("div", "ofr-team-line warn", st.note));
     return rows;
+  }
+
+  // The notice above the log: the public-chat warning (dismissed with "Got it"
+  // only) or the paused explanation. Rebuilt only when it changes kind.
+  const NOTE_PUBLIC =
+    "Messages go through public Nostr relays: anyone can read them, and relays see your IP. Your name and clan tag are announced while chat is on. Names aren't verified; the 4 letters after a name identify the sender. Hover a message and press × to mute.";
+  const NOTE_PAUSED =
+    "Paused while you're alive in a free-for-all: OpenFront's rules don't allow outside coordination. It reopens when you're out or the game ends.";
+  function setNote(kind) {
+    if (ui.note.dataset.kind === kind) return;
+    ui.note.dataset.kind = kind;
+    if (kind === "paused") {
+      ui.note.replaceChildren(document.createTextNode(NOTE_PAUSED));
+      return;
+    }
+    const flag = el("span", "ofr-chip ofr-chat-flag", "PUBLIC");
+    flag.dataset.tone = "warn";
+    const actions = el("div", "ofr-chat-note-actions");
+    const ok = el("button", "ofr-btn ofr-btn-ghost ofr-btn-sm", "Got it");
+    ok.type = "button";
+    ok.dataset.act = "got-it";
+    actions.append(ok);
+    ui.note.replaceChildren(flag, document.createTextNode(NOTE_PUBLIC), actions);
   }
 
   function render() {
@@ -563,22 +614,29 @@
     ui.tab.dataset.unread = String(news > 0 && !paused);
     ui.tab.title = paused ? "Chat is paused while you are playing" : `${here} with OpenFront Pro in this ${want.phase === "lobby" ? "lobby" : "game"}`;
     ui.title.textContent = want.phase === "lobby" ? "Lobby chat" : want.phase === "after" ? "Post-game chat" : "Game chat";
-    ui.status.textContent = relays.open ? `${here} here · ${relays.open}/${relays.total} relays` : "connecting…";
-    ui.status.dataset.ok = String(relays.open > 0);
+    ui.status.textContent = paused ? "paused while you play" : relays.open ? `${here} here · ${relays.open}/${relays.total} relays` : "connecting…";
+    ui.status.dataset.ok = paused ? "paused" : String(relays.open > 0);
     ui.mutes.textContent = muted.size + tempMuted.size ? `${muted.size + tempMuted.size} muted · clear` : "";
     ui.mutes.hidden = muted.size + tempMuted.size === 0 || inTeam;
 
     ui.tabs.hidden = !teamOn;
-    ui.tabAll.dataset.on = String(!inTeam);
-    ui.tabTeam.dataset.on = String(inTeam);
-    ui.tabAll.textContent = unread > 0 && inTeam ? `Everyone · ${unread}` : "Everyone";
+    for (const [t, on] of [[ui.tabAll, !inTeam], [ui.tabTeam, inTeam]]) {
+      t.dataset.on = String(on);
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+    }
+    // unread: the dot (data-unread); a count only for how many teammates are reachable
+    ui.tabAll.textContent = "Everyone";
+    ui.tabAll.dataset.unread = String(unread > 0 && inTeam);
     const reach = teamState?.reachable ?? 0;
-    ui.tabTeam.textContent = `Team${reach > 0 ? " (encrypted)" : ""}${teamUnread > 0 && !inTeam ? ` · ${teamUnread} new` : reach > 0 ? ` · ${reach}` : ""}`;
+    ui.tabTeam.textContent = `Team${reach > 0 ? " (encrypted)" : ""}`;
+    if (reach > 0) ui.tabTeam.append(el("span", "ofr-tab-count", String(reach)));
+    ui.tabTeam.title = reach > 0 ? `Encrypted to ${reach} verified teammate${reach === 1 ? "" : "s"}` : "Team chat, encrypted to verified teammates";
     ui.tabTeam.dataset.unread = String(teamUnread > 0 && !inTeam);
 
     if (paused) {
       ui.note.hidden = false;
-      ui.note.textContent = "Paused while you are alive in a free-for-all: OpenFront's terms do not allow outside channels for coordinating there. It opens again when you are out or the game ends. (Team games keep it open.)";
+      setNote("paused");
       ui.teamBox.hidden = true;
       ui.list.replaceChildren();
       ui.list.hidden = true;
@@ -605,10 +663,7 @@
       ui.go.disabled = !can;
     } else {
       ui.note.hidden = noteSeen;
-      if (!noteSeen) {
-        ui.note.textContent =
-          "This chat is PUBLIC. Messages travel through public Nostr relays: anyone connected to them can read this room, the relays see your IP address, and nobody can promise they keep nothing. While chat is on, your OpenFront name and clan tag are announced to the room even if you do not type. Names are NOT verified; the letters after a name identify the sender's key for this game. x mutes a sender, Report opens the project's issue page. Click to dismiss.";
-      }
+      if (!noteSeen) setNote("public");
       ui.input.placeholder = want.phase === "lobby" ? "Message the lobby…" : "Message the game…";
       ui.input.disabled = relays.open === 0;
       ui.go.disabled = relays.open === 0;
@@ -639,6 +694,7 @@
               const x = el("button", "ofr-chat-mute", "×");
               x.type = "button";
               x.title = "Mute this sender";
+              x.setAttribute("aria-label", `Mute ${m.name}`); // an attribute: text, never markup
               x.dataset.pubkey = m.pubkey;
               row.append(x);
             }

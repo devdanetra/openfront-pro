@@ -35,7 +35,7 @@ WHAT IT ADDS
 - A visual stats dashboard inside the site: a world-rank gauge, your win rate against an average player, your rank on every map as a heat grid, win rate per mode, rolling win-rate, survival and gold trends, recent games, today's session, clan statistics with the weekly clan table, and a side-by-side player comparison.
 - A game recap when a match ends: your result, your numbers ranked within the lobby, the survival curve, awards, full standings, a share image for Discord, and a timelapse of the whole map you can save as a video or GIF (recorded and kept in your browser's memory, never uploaded).
 - Watchlist with an optional sound and notification when a watched player joins your lobby.
-- Themes (Classic, Neon, Tactical, Pastel, Mono, High contrast) for the extension and, if you want, the site's colours; three front-page layouts (Wide, Sidebar, Focus). Ads are never hidden.
+- Nine themes (Classic, Neon, Tactical, Pastel, Mono, High contrast, Midnight, Ember, Daylight) for the extension and, if you want, the site's colours; three front-page layouts (Wide, Sidebar, Focus). Ads are never hidden.
 - Streamer mode hides your own name and rank (in team games the team channel still announces your player slot, which players in that game can match to your name).
 - Optional chat with other users of the extension in the same lobby or game. During play it stays open in team games and pauses in free-for-all while you are alive (it leaves the room until then), in line with the game's rules on outside coordination.
 
