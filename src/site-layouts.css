@@ -109,12 +109,16 @@ html[data-ofr-site="wide"] div:has(> streaming-now) {
     width: 100% !important;
     justify-content: flex-start !important;
   }
-  /* the account dropdown would open below the viewport down here: flip it up */
-  html[data-ofr-site="sidebar"] nav-account-menu [role="menu"] {
+  /* The account menu is a fixed panel OpenFront appends to <body> and places
+     under the button - off-screen with the button at the bottom of the side bar.
+     Open it upward from the button instead (content.js measures the button). */
+  html[data-ofr-site="sidebar"] body > div:has(> [role="menu"]) {
     top: auto !important;
-    bottom: calc(100% + 6px) !important;
-    left: 0 !important;
+    bottom: var(--ofr-acct-bottom, 72px) !important;
+    left: var(--ofr-acct-left, 12px) !important;
     right: auto !important;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
   }
   /* the PRO tag lives in the logo block; only the fallback pill needs room here */
   html[data-ofr-site="sidebar"] desktop-nav-bar .ofr-nav-btn:not(.ofr-logo-tag) {

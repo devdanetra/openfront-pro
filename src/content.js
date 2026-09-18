@@ -98,6 +98,34 @@ function applyLayout() {
 }
 const SITE_LAYOUTS = new Set(["default", "wide", "sidebar", "focus"]);
 
+// The Sidebar template puts OpenFront's account button at the bottom of the side
+// bar. OpenFront opens the account menu as a fixed panel appended to <body>, just
+// BELOW the button (NavAccountMenu: top = button bottom + 8 px) - off-screen down
+// there. site-layouts.css opens it upward instead, from where the button is:
+// measured here when the button is pressed, before OpenFront draws the menu.
+// (Only our own custom properties are written; the site's elements are untouched.)
+function placeAccountMenu(trigger) {
+  const root = document.documentElement;
+  if (root.dataset.ofrSite !== "sidebar" || !trigger) return;
+  const r = trigger.getBoundingClientRect();
+  root.style.setProperty("--ofr-acct-bottom", `${Math.round(Math.max(8, window.innerHeight - r.top + 8))}px`);
+  root.style.setProperty("--ofr-acct-left", `${Math.round(Math.max(8, r.left))}px`);
+}
+window.addEventListener(
+  "pointerdown",
+  (e) => {
+    if (!alive()) return;
+    const trigger = e.target?.closest?.("desktop-nav-bar nav-account-menu [data-account-trigger]");
+    if (trigger) placeAccountMenu(trigger);
+  },
+  true,
+);
+window.addEventListener("keydown", (e) => {
+  if (!alive() || (e.key !== "Enter" && e.key !== " ")) return;
+  const trigger = document.activeElement?.closest?.("desktop-nav-bar nav-account-menu [data-account-trigger]");
+  if (trigger) placeAccountMenu(trigger);
+}, true);
+
 // The extension's settings, inside the page: the popup's own document in an
 // iframe (it is an extension page, so it keeps full access to chrome.*). Opened
 // from the account dropdown, the home card and the dashboard.
