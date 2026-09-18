@@ -1,0 +1,19 @@
+# packaged builds
+*.zip
+
+# dev data: screenshots of live lobbies (other players' names), saved game
+# records, the npm sandbox used to rebuild src/vendor/
+.shots/
+.recap/
+.vendor-build/
+node_modules/
+
+# local patch scripts
+_patch_*.py
+_*.css
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

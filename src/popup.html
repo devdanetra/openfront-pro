@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="content.css" />
+    <style>
+      body {
+        width: 250px;
+        margin: 0;
+        padding: 12px;
+        font: 13px/1.4 var(--ofr-ui-font);
+        background: var(--ofr-stage-bg);
+        color: var(--ofr-text);
+      }
+      h1 { margin: 0 0 10px; font-size: 13px; }
+      label { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+      button {
+        width: 100%;
+        margin-top: 10px;
+        padding: 6px;
+        border: 1px solid var(--ofr-btn-border);
+        border-radius: var(--ofr-panel-radius);
+        background: var(--ofr-btn-bg);
+        color: inherit;
+        cursor: pointer;
+      }
+      button:hover { background: var(--ofr-btn-hover); }
+      p { margin: 10px 0 0; font-size: 11px; color: var(--ofr-text-dim); }
+      .disclaimer { margin: -6px 0 8px; font-size: 10px; color: var(--ofr-text-dim); }
+      html.embedded body { width: auto; }
+      .warn { color: var(--ofr-strong); }
+      .warn-note { margin: 2px 0 6px; font-size: 10px; color: var(--ofr-text-dim); }
+      h2 { margin: 12px 0 4px; font-size: 12px; }
+      select {
+        width: 100%; padding: 4px; border: 1px solid var(--ofr-btn-border); border-radius: var(--ofr-panel-radius);
+        background: var(--ofr-btn-bg); color: inherit; font: inherit;
+      }
+      #theme-preview {
+        display: flex; flex-wrap: wrap; gap: 4px 0; margin: 8px 0 4px;
+        padding: 8px 6px; border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-soft);
+      }
+      #theme-preview .ofr-badge { margin-left: 4px; cursor: default; }
+      h2 small { font-weight: 400; color: var(--ofr-text-dim); font-size: 10px; }
+      #watchlist { list-style: none; margin: 0; padding: 0; max-height: 120px; overflow-y: auto; }
+      #watchlist li {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 2px 0; color: var(--ofr-accent); font-size: 12px;
+      }
+      #watchlist li button {
+        width: auto; margin: 0; padding: 0 6px;
+        border: 0; background: none; color: var(--ofr-text-dim); cursor: pointer;
+      }
+      #watchlist .empty { color: var(--ofr-muted); font-style: italic; }
+      #status {
+        margin-top: 10px;
+        padding: 7px;
+        border: 1px solid var(--ofr-panel-border);
+        border-radius: var(--ofr-panel-radius);
+        font-size: 11px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        background: var(--ofr-panel-soft);
+      }
+      #status b { color: var(--ofr-text); }
+      .bad { color: var(--ofr-elite); }
+      .good { color: var(--ofr-good); }
+      a { color: var(--ofr-average); }
+      input[type="checkbox"] { accent-color: var(--ofr-accent); }
+      label.off { opacity: 0.5; }
+    </style>
+  </head>
+  <body>
+    <h1>OpenFront Pro</h1>
+    <div class="disclaimer">Unofficial — not affiliated with OpenFront.</div>
+    <h2>Theme <small id="theme-blurb"></small></h2>
+    <select id="theme"></select>
+    <div id="theme-preview">
+      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="elite"></span>
+      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="strong"></span>
+      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="good"></span>
+      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="average"></span>
+      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="low"></span>
+      <span class="ofr-badge" data-ofr-kind="percentile" data-ofr-watched="true"></span>
+      <span class="ofr-badge" data-ofr-kind="missing">guest</span>
+    </div>
+    <label id="themeSite-row"><input type="checkbox" id="themeSite" /> Recolour OpenFront too</label>
+    <p class="warn-note" id="themeSite-note">One theme for everything: badges, cards, dashboard, recap, this panel and, with this on, OpenFront's own pages.</p>
+    <h2>Website layout</h2>
+    <select id="siteLayout">
+      <option value="default">Default - OpenFront as designed</option>
+      <option value="wide">Wide - use the whole window, bigger maps</option>
+      <option value="sidebar">Sidebar - navigation as a left rail</option>
+      <option value="focus">Focus - one column, no news or streams</option>
+    </select>
+    <h2>Pro card layout</h2>
+    <select id="layout">
+      <option value="cards">Cards - stat tiles under the username field (default)</option>
+      <option value="compact">Compact - one-line card, small badges, dense dashboard</option>
+      <option value="panel">Panel - card docked on the right, dashboard as a side drawer</option>
+    </select>
+    <h2>Size</h2>
+    <select id="uiSize">
+      <option value="small">Small (85%)</option>
+      <option value="medium">Medium</option>
+      <option value="large">Large (120%)</option>
+      <option value="xlarge">Extra large (140%)</option>
+    </select>
+    <label><input type="checkbox" id="enabled" /> Show ranks (lobby + in-game hover)</label>
+    <label><input type="checkbox" id="showGames" /> Show game count (12.5% WR · 48)</label>
+    <label><input type="checkbox" id="explainMissing" /> Mark names that cannot be ranked</label>
+    <label><input type="checkbox" id="showSummary" /> Lobby &amp; team summary line</label>
+    <label><input type="checkbox" id="markThreats" /> Outline the strongest players</label>
+    <label><input type="checkbox" id="showMapPreview" /> Map preview in the lobby</label>
+    <label><input type="checkbox" id="showMapRank" /> Skill on this map (&#x1F5FA;)</label>
+    <label><input type="checkbox" id="showForm" /> Hot / cold form (&#x1F525; &#x2744;)</label>
+    <label><input type="checkbox" id="flagSmurfs" /> Flag possible smurfs (&#x26A0;)</label>
+    <label><input type="checkbox" id="showRecap" /> Recap after each game</label>
+    <label><input type="checkbox" id="clanStats" /> Clan stats (dashboard + lobby chips)</label>
+    <label><input type="checkbox" id="soundAlerts" /> Sound when a watched player joins</label>
+    <label><input type="checkbox" id="streamerMode" /> Streamer mode (hide my rank, blur my name)</label>
+    <label><input type="checkbox" id="autoCopyReport" /> Copy scouting report at 10s on the countdown</label>
+    <h2>Clicking a badge opens</h2>
+    <select id="profileLink">
+      <option value="dashboard">In-page stats (Pro dashboard)</option>
+      <option value="none">Nothing</option>
+    </select>
+    <h2>Chat <small>beta - off by default</small></h2>
+    <label><input type="checkbox" id="chatEnabled" /> Chat with other OpenFront Pro players in your lobby / game</label>
+    <p class="warn-note">No server of ours: messages travel through public Nostr relays (primal.net, nos.lol, nostr.mom, snort.social). Those relays see your IP address and what you send; other players see only your name and text. Names are not verified. Nothing is stored. You can mute anyone.</p>
+    <label><input type="checkbox" id="chatFilter" /> Mask slurs and the like</label>
+    <label><input type="checkbox" id="chatDuringGame" /> Keep the chat open during the game</label>
+    <p class="warn-note">On by default. Untick to pause it while you are alive in a running game (it stays open in the lobby and once you are out). Everyone with OpenFront Pro in the game shares one room - it is not a private channel, so keep it to talk, not to team up in free-for-all.</p>
+    <h2>Automation <small>use at your own risk</small></h2>
+    <label class="warn"><input type="checkbox" id="autoEmbargoTeams" /> Auto "stop trading with all" when a team game starts</label>
+    <p class="warn-note">This sends a game action for you. It is off by default because automating actions may be against OpenFront's rules; enabling it is your call.</p>
+    <h2>Watchlist <small>Shift+click a badge to add</small></h2>
+    <ul id="watchlist"></ul>
+    <div id="status">Checking…</div>
+    <button id="inject">Enable on openfront.io</button>
+    <button id="clear">Clear cached ranks</button>
+    <p>
+      Ranks come from public-game stats on
+      <a href="https://ofstats.io/" target="_blank">ofstats.io</a>, matched by
+      name. Players marked <b>hidden</b> mean OpenFront’s "Hidden Names"
+      setting is on — turn it off in OpenFront to see everyone.
+    </p>
+    <script src="themes.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

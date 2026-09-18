@@ -1,0 +1,842 @@
+/* ==========================================================================
+   Design tokens. Every colour, radius and font the extension draws with comes
+   from here, so a theme is only a block of overrides further down — keyed on
+   <html data-ofr-theme="…">, which content.js sets from the popup's choice.
+   ========================================================================== */
+:root {
+  --ofr-elite: #fb7185;
+  --ofr-strong: #fbbf24;
+  --ofr-good: #a3e635;
+  --ofr-average: #7dd3fc;
+  --ofr-low: #9ca3af;
+  --ofr-muted: #9ca3af;
+  --ofr-accent: #fcd34d; /* watchlist, toasts */
+  --ofr-threat: rgba(251, 113, 133, 0.75);
+
+  --ofr-badge-bg: rgba(0, 0, 0, 0.25);
+  --ofr-badge-radius: 4px;
+  --ofr-badge-border: 1px;
+  --ofr-badge-font: inherit;
+  --ofr-badge-weight: 700;
+  --ofr-badge-case: none;
+  --ofr-badge-glow: none;
+
+  --ofr-panel-bg: rgba(15, 18, 26, 0.95);
+  --ofr-panel-soft: rgba(0, 0, 0, 0.3);
+  --ofr-panel-border: rgba(255, 255, 255, 0.12);
+  --ofr-panel-radius: 8px;
+  --ofr-text: #e5e7eb;
+  --ofr-text-dim: #9ca3af;
+  --ofr-summary-text: #cbd5e1;
+  --ofr-btn-bg: #22252c;
+  --ofr-btn-hover: #2c3038;
+  --ofr-btn-border: #3f434d;
+  --ofr-stage-bg: #0b0d12;
+  --ofr-ui-font: system-ui, sans-serif;
+  /* bar and strip tracks: derived, so every theme (light ones too) gets one */
+  --ofr-track: color-mix(in srgb, var(--ofr-text) 13%, transparent);
+}
+
+/* ==========================================================================
+   Rank badges
+   ========================================================================== */
+.ofr-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: var(--ofr-badge-border) solid currentColor;
+  border-radius: var(--ofr-badge-radius);
+  font-family: var(--ofr-badge-font);
+  font-size: 10px;
+  font-weight: var(--ofr-badge-weight);
+  line-height: 15px;
+  letter-spacing: 0.01em;
+  text-transform: var(--ofr-badge-case);
+  white-space: nowrap;
+  vertical-align: middle;
+  cursor: help;
+  color: var(--ofr-low);
+  background: var(--ofr-badge-bg);
+  box-shadow: var(--ofr-badge-glow);
+}
+
+.ofr-badge[data-ofr-kind="percentile"] { color: var(--ofr-good); }
+.ofr-badge[data-ofr-kind="winrate"] { color: var(--ofr-low); }
+
+/* Not a rank but a reason: why this name could not be looked up. Muted and
+   dashed so it never reads as a score. */
+.ofr-badge[data-ofr-kind="missing"] {
+  border-style: dashed;
+  font-weight: 400;
+  opacity: 0.6;
+  color: var(--ofr-muted);
+}
+
+/* Percentile bands, calibrated in content.js against real lobby data. */
+.ofr-badge[data-ofr-band="elite"] { color: var(--ofr-elite); }
+.ofr-badge[data-ofr-band="strong"] { color: var(--ofr-strong); }
+.ofr-badge[data-ofr-band="good"] { color: var(--ofr-good); }
+.ofr-badge[data-ofr-band="average"] { color: var(--ofr-average); }
+.ofr-badge[data-ofr-band="low"] { color: var(--ofr-low); }
+
+.ofr-badge[data-ofr-profile] { cursor: pointer; }
+.ofr-badge[data-ofr-profile]:hover {
+  filter: brightness(1.35);
+  text-decoration: underline;
+}
+
+/* Watchlist: starred players stand out in every list. */
+.ofr-badge[data-ofr-watched="true"] {
+  color: var(--ofr-accent) !important;
+  border-color: var(--ofr-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ofr-accent) 40%, transparent);
+}
+
+/* The strongest one or two players in the room. */
+.ofr-threat {
+  outline: 1px solid var(--ofr-threat);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ==========================================================================
+   Lobby summary line
+   ========================================================================== */
+.ofr-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  padding: 3px 7px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: calc(var(--ofr-panel-radius) - 3px);
+  background: var(--ofr-panel-soft);
+  color: var(--ofr-summary-text);
+  font-family: var(--ofr-ui-font);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: normal;
+}
+
+.ofr-summary .ofr-summary-text { flex: 1; }
+
+.ofr-copy {
+  padding: 1px 7px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: var(--ofr-badge-radius);
+  background: var(--ofr-btn-bg);
+  color: var(--ofr-text);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ofr-copy:hover { background: var(--ofr-btn-hover); }
+
+/* ==========================================================================
+   Map preview (lobby) and the waiting screen's own thumbnail
+   ========================================================================== */
+.ofr-map-preview {
+  position: relative;
+  margin: 0 0 8px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-panel-soft);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.ofr-map-preview img {
+  display: block;
+  width: 100%;
+  max-height: 190px;
+  object-fit: contain;
+  background: var(--ofr-stage-bg);
+}
+
+.ofr-map-preview .ofr-map-meta {
+  padding: 4px 7px;
+  color: var(--ofr-summary-text);
+  font-family: var(--ofr-ui-font);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ofr-map-preview .ofr-map-zoom {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--ofr-text);
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+join-lobby-modal img[src*="/thumbnail."] {
+  cursor: zoom-in;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+join-lobby-modal img[src*="/thumbnail."]:hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 2px var(--ofr-average);
+}
+
+/* ==========================================================================
+   Full-screen zoomable terrain view
+   ========================================================================== */
+.ofr-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483600;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--ofr-stage-bg) 92%, transparent);
+  font-family: var(--ofr-ui-font);
+}
+
+.ofr-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--ofr-panel-bg);
+  border-bottom: 1px solid var(--ofr-panel-border);
+  color: var(--ofr-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ofr-viewer-title { font-size: 14px; }
+
+.ofr-viewer-hint {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--ofr-text-dim);
+}
+
+.ofr-viewer-btn {
+  min-width: 30px;
+  padding: 3px 9px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: calc(var(--ofr-badge-radius) + 1px);
+  background: var(--ofr-btn-bg);
+  color: var(--ofr-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ofr-viewer-btn:hover { background: var(--ofr-btn-hover); }
+
+.ofr-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.ofr-viewer-stage:active { cursor: grabbing; }
+.ofr-viewer-stage canvas { display: block; }
+
+.ofr-viewer-status {
+  padding: 4px 10px;
+  background: var(--ofr-panel-bg);
+  border-top: 1px solid var(--ofr-panel-border);
+  color: var(--ofr-text-dim);
+  font-size: 11px;
+}
+
+/* ==========================================================================
+   Toasts and the post-game recap
+   ========================================================================== */
+.ofr-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 2147483600;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--ofr-accent) 60%, transparent);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-panel-bg);
+  color: var(--ofr-accent);
+  font: 600 13px/1.3 var(--ofr-ui-font);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+/* the recap panel is styled at the end of this file */
+
+/* ==========================================================================
+   Themes. Each only overrides tokens; icons are swapped in content.js.
+   ========================================================================== */
+
+/* Neon: black glass, saturated glowing badges. */
+html[data-ofr-theme="neon"] {
+  --ofr-elite: #ff3df2;
+  --ofr-strong: #ffe600;
+  --ofr-good: #39ff14;
+  --ofr-average: #00e5ff;
+  --ofr-low: #8a8fff;
+  --ofr-muted: #6b6f9e;
+  --ofr-accent: #00e5ff;
+  --ofr-threat: #ff3df2;
+  --ofr-badge-bg: rgba(5, 0, 20, 0.75);
+  --ofr-badge-radius: 3px;
+  --ofr-badge-glow: 0 0 6px currentColor;
+  --ofr-panel-bg: rgba(8, 2, 24, 0.94);
+  --ofr-panel-soft: rgba(20, 6, 48, 0.55);
+  --ofr-panel-border: rgba(0, 229, 255, 0.35);
+  --ofr-text: #e8f7ff;
+  --ofr-text-dim: #8fb6d6;
+  --ofr-summary-text: #bfefff;
+  --ofr-btn-bg: #170b35;
+  --ofr-btn-hover: #24115a;
+  --ofr-btn-border: #3b2a7a;
+  --ofr-stage-bg: #05000f;
+}
+
+/* Tactical: olive command-console look, monospace, square corners. */
+html[data-ofr-theme="tactical"] {
+  --ofr-elite: #ff6b3d;
+  --ofr-strong: #f0b429;
+  --ofr-good: #b5d334;
+  --ofr-average: #7fb8a3;
+  --ofr-low: #8f9a7a;
+  --ofr-muted: #6f7862;
+  --ofr-accent: #f0b429;
+  --ofr-threat: #ff6b3d;
+  --ofr-badge-bg: rgba(20, 26, 14, 0.8);
+  --ofr-badge-radius: 0;
+  --ofr-badge-font: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --ofr-badge-case: uppercase;
+  --ofr-panel-bg: rgba(22, 27, 17, 0.96);
+  --ofr-panel-soft: rgba(38, 46, 28, 0.6);
+  --ofr-panel-border: rgba(181, 211, 52, 0.3);
+  --ofr-panel-radius: 2px;
+  --ofr-text: #e3e8cf;
+  --ofr-text-dim: #9aa382;
+  --ofr-summary-text: #d3dab8;
+  --ofr-btn-bg: #2a3320;
+  --ofr-btn-hover: #36422a;
+  --ofr-btn-border: #4a5a35;
+  --ofr-stage-bg: #10140b;
+  --ofr-ui-font: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+/* Pastel: soft filled chips, rounded pills. */
+html[data-ofr-theme="pastel"] {
+  --ofr-elite: #b4235a;
+  --ofr-strong: #9a5b00;
+  --ofr-good: #2f7d32;
+  --ofr-average: #1f6fa8;
+  --ofr-low: #5f6570;
+  --ofr-muted: #7a808a;
+  --ofr-accent: #c26b00;
+  --ofr-threat: #e38fb3;
+  --ofr-badge-bg: #fdf1f6;
+  --ofr-badge-radius: 999px;
+  --ofr-badge-border: 0;
+  --ofr-panel-bg: rgba(252, 248, 255, 0.97);
+  --ofr-panel-soft: rgba(246, 240, 255, 0.9);
+  --ofr-panel-border: rgba(160, 130, 200, 0.35);
+  --ofr-panel-radius: 12px;
+  --ofr-text: #3b3350;
+  --ofr-text-dim: #7b7390;
+  --ofr-summary-text: #4a4262;
+  --ofr-btn-bg: #efe6fb;
+  --ofr-btn-hover: #e4d6f8;
+  --ofr-btn-border: #cdbbe8;
+  --ofr-stage-bg: #f3eefb;
+}
+
+/* Mono: greyscale; rank reads from brightness and weight alone. */
+html[data-ofr-theme="mono"] {
+  --ofr-elite: #ffffff;
+  --ofr-strong: #e2e2e2;
+  --ofr-good: #bdbdbd;
+  --ofr-average: #969696;
+  --ofr-low: #6e6e6e;
+  --ofr-muted: #5a5a5a;
+  --ofr-accent: #ffffff;
+  --ofr-threat: rgba(255, 255, 255, 0.7);
+  --ofr-badge-bg: rgba(0, 0, 0, 0.45);
+  --ofr-badge-radius: 2px;
+  --ofr-badge-weight: 600;
+  --ofr-panel-bg: rgba(12, 12, 12, 0.96);
+  --ofr-panel-soft: rgba(0, 0, 0, 0.35);
+  --ofr-panel-border: rgba(255, 255, 255, 0.16);
+  --ofr-panel-radius: 3px;
+  --ofr-text: #eeeeee;
+  --ofr-text-dim: #9a9a9a;
+  --ofr-summary-text: #d0d0d0;
+  --ofr-btn-bg: #1c1c1c;
+  --ofr-btn-hover: #2a2a2a;
+  --ofr-btn-border: #3a3a3a;
+  --ofr-stage-bg: #080808;
+}
+
+/* High contrast: colour-blind-safe (blue/orange axis), bold, thick borders,
+   and word labels instead of pictograms (see content.js). */
+html[data-ofr-theme="contrast"] {
+  --ofr-elite: #ff8c00;
+  --ofr-strong: #ffd000;
+  --ofr-good: #ffffff;
+  --ofr-average: #4db8ff;
+  --ofr-low: #b0b0b0;
+  --ofr-muted: #b0b0b0;
+  --ofr-accent: #ffd000;
+  --ofr-threat: #ff8c00;
+  --ofr-badge-bg: #000000;
+  --ofr-badge-radius: 3px;
+  --ofr-badge-border: 2px;
+  --ofr-badge-weight: 800;
+  --ofr-panel-bg: #000000;
+  --ofr-panel-soft: #000000;
+  --ofr-panel-border: #ffffff;
+  --ofr-panel-radius: 4px;
+  --ofr-text: #ffffff;
+  --ofr-text-dim: #d9d9d9;
+  --ofr-summary-text: #ffffff;
+  --ofr-btn-bg: #000000;
+  --ofr-btn-hover: #333333;
+  --ofr-btn-border: #ffffff;
+  --ofr-stage-bg: #000000;
+}
+
+/* Page themes (restyling OpenFront itself) are generated: see
+   src/page-themes.css and tools/gen-page-themes.mjs. */
+
+/* Clan chips on the lobby summary line. */
+.ofr-clan-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: 999px;
+  background: var(--ofr-btn-bg);
+  color: var(--ofr-summary-text);
+  font: 700 10px var(--ofr-ui-font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ofr-clan-chip:hover { background: var(--ofr-btn-hover); color: var(--ofr-accent); }
+
+/* Streamer mode: your own name in the lobby list, unreadable on a stream. */
+.ofr-streamer { filter: blur(6px); user-select: none; }
+
+/* ==========================================================================
+   Size and layout. Both are attributes on <html> set by content.js from the
+   popup. Size uses `zoom` on the containers so every px inside scales with it.
+   Layout templates only rearrange; colours still come from the theme.
+   ========================================================================== */
+:root { --ofr-scale: 1; }
+html[data-ofr-size="small"] { --ofr-scale: 0.85; }
+html[data-ofr-size="large"] { --ofr-scale: 1.2; }
+html[data-ofr-size="xlarge"] { --ofr-scale: 1.4; }
+
+.ofr-home, .ofr-recap, .ofr-summary, .ofr-map-preview, .ofr-toast,
+.ofr-dash-body, .ofr-dash-bar, .ofr-viewer-bar, .ofr-viewer-status {
+  zoom: var(--ofr-scale);
+}
+.ofr-badge { zoom: var(--ofr-scale); }
+/* ...but not twice: a badge inside one of the containers above is already scaled */
+.ofr-home .ofr-badge, .ofr-recap .ofr-badge, .ofr-summary .ofr-badge, .ofr-dash-body .ofr-badge { zoom: 1; }
+
+/* --- Compact: one-line card, tighter everything ------------------------------ */
+html[data-ofr-layout="compact"] .ofr-badge { font-size: 9px; line-height: 13px; padding: 0 4px; margin-left: 4px; }
+html[data-ofr-layout="compact"] .ofr-summary { padding: 2px 6px; font-size: 10px; margin: 2px 0; }
+html[data-ofr-layout="compact"] .ofr-map-preview img { max-height: 110px; }
+html[data-ofr-layout="compact"] .ofr-map-preview .ofr-map-meta { padding: 2px 6px; font-size: 10px; }
+html[data-ofr-layout="compact"] .ofr-recap { width: 320px; font-size: 12px; }
+html[data-ofr-layout="compact"] .ofr-recap-big { font-size: 22px; }
+html[data-ofr-layout="compact"] .ofr-recap-chip-value { font-size: 14px; }
+
+/* --- Panel: docked card on the right, dashboard as a drawer ------------------- */
+html[data-ofr-layout="panel"] .ofr-recap { width: 340px; }
+@media (max-width: 900px) {
+  html[data-ofr-layout="panel"] .ofr-home { position: static; width: auto; }
+}
+
+/* ==========================================================================
+   Charts (charts.js). Marks carry classes, colours come from the tokens, so a
+   chart follows the theme - light themes included.
+   ========================================================================== */
+.ofr-chart { display: block; width: 100%; height: auto; overflow: visible; }
+.ofr-chart-grid { stroke: var(--ofr-panel-border); stroke-width: 1; }
+.ofr-chart-label { fill: var(--ofr-text-dim); font: 9px var(--ofr-ui-font); }
+.ofr-chart-baseline { stroke: var(--ofr-text-dim); stroke-width: 1; stroke-dasharray: 3 3; }
+.ofr-chart-line { fill: none; stroke: var(--ofr-average); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.ofr-chart-line.accent { stroke: var(--ofr-accent); }
+.ofr-chart-line.good { stroke: var(--ofr-good); }
+.ofr-chart-line.dim { stroke: var(--ofr-text-dim); stroke-width: 1.2; }
+.ofr-chart-area { fill: color-mix(in srgb, var(--ofr-average) 16%, transparent); stroke: none; }
+.ofr-chart-area.accent { fill: color-mix(in srgb, var(--ofr-accent) 16%, transparent); }
+.ofr-chart-area.good { fill: color-mix(in srgb, var(--ofr-good) 16%, transparent); }
+.ofr-chart-col { fill: var(--ofr-muted); }
+.ofr-chart-col.won { fill: var(--ofr-good); }
+.ofr-chart-col.lost { fill: color-mix(in srgb, var(--ofr-elite) 70%, var(--ofr-muted)); }
+.ofr-chart-col.accent { fill: var(--ofr-accent); }
+.ofr-chart-marker line { stroke: var(--ofr-text-dim); stroke-width: 1; stroke-dasharray: 2 2; }
+.ofr-chart-marker circle { fill: var(--ofr-text); stroke: var(--ofr-stage-bg); stroke-width: 1.5; }
+.ofr-chart-marker text { fill: var(--ofr-text); font: 600 9px var(--ofr-ui-font); }
+.ofr-chart-marker[data-kind="me"] line { stroke: var(--ofr-accent); stroke-dasharray: none; stroke-width: 1.5; }
+.ofr-chart-marker[data-kind="me"] circle, .ofr-chart-marker[data-kind="me"] text { fill: var(--ofr-accent); }
+.ofr-chart-marker[data-kind="winner"] circle, .ofr-chart-marker[data-kind="winner"] text { fill: var(--ofr-good); }
+
+.ofr-chart-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 4px 0 2px; color: var(--ofr-text-dim); font-size: 10px; }
+.ofr-chart-key::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 4px;
+  border-radius: 2px; background: var(--ofr-muted); vertical-align: -1px;
+}
+.ofr-chart-key[data-col="won"]::before { background: var(--ofr-good); }
+.ofr-chart-key[data-col="lost"]::before { background: color-mix(in srgb, var(--ofr-elite) 70%, var(--ofr-muted)); }
+.ofr-chart-key[data-kind="me"]::before, .ofr-cmp-fill[data-kind="me"] { background: var(--ofr-accent); }
+.ofr-chart-key[data-kind="winner"]::before, .ofr-cmp-fill[data-kind="winner"] { background: var(--ofr-good); }
+.ofr-chart-key[data-kind="lobby"]::before, .ofr-cmp-fill[data-kind="lobby"] { background: var(--ofr-muted); }
+.ofr-chart-key[data-slot="1"]::before, .ofr-stack-seg[data-slot="1"] { background: var(--ofr-average); }
+.ofr-chart-key[data-slot="2"]::before, .ofr-stack-seg[data-slot="2"] { background: var(--ofr-elite); }
+.ofr-chart-key[data-slot="3"]::before, .ofr-stack-seg[data-slot="3"] { background: var(--ofr-good); }
+.ofr-chart-key[data-slot="4"]::before, .ofr-stack-seg[data-slot="4"] { background: var(--ofr-strong); }
+.ofr-chart-key[data-slot="5"]::before, .ofr-stack-seg[data-slot="5"] { background: var(--ofr-low); }
+.ofr-chart-key[data-slot="6"]::before, .ofr-stack-seg[data-slot="6"] { background: var(--ofr-accent); }
+
+.ofr-cmp { display: grid; gap: 7px; }
+.ofr-cmp-row { display: grid; gap: 2px; }
+.ofr-cmp-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.ofr-cmp-label { font-weight: 600; }
+.ofr-cmp-note { color: var(--ofr-text-dim); }
+/* bar area | value: the value has its own fixed column, so every bar in a row
+   is a share of the same length */
+.ofr-cmp-track { display: grid; grid-template-columns: minmax(0, 1fr) 46px; align-items: center; gap: 6px; height: 9px; }
+.ofr-cmp-area { display: block; min-width: 0; }
+.ofr-cmp-fill { display: block; height: 7px; min-width: 2px; border-radius: 2px; background: var(--ofr-muted); }
+.ofr-cmp-value { color: var(--ofr-text-dim); font-size: 9.5px; line-height: 1; white-space: nowrap; }
+.ofr-chart-dot { fill: var(--ofr-average); }
+.ofr-chart-dot.accent { fill: var(--ofr-accent); }
+.ofr-chart-dot.good { fill: var(--ofr-good); }
+
+.ofr-stack-bar { display: flex; height: 10px; overflow: hidden; border-radius: 3px; background: var(--ofr-panel-soft); }
+.ofr-stack-seg { display: block; height: 100%; min-width: 1px; }
+
+.ofr-bands { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; align-items: end; }
+.ofr-bands-col { display: grid; gap: 2px; justify-items: center; font-size: 9.5px; color: var(--ofr-text-dim); }
+.ofr-bands-stem { display: flex; align-items: flex-end; width: 100%; height: 44px; border-bottom: 1px solid var(--ofr-panel-border); }
+.ofr-bands-fill { display: block; width: 100%; border-radius: 2px 2px 0 0; background: var(--ofr-muted); }
+.ofr-bands-fill[data-ofr-band="elite"] { background: var(--ofr-elite); }
+.ofr-bands-fill[data-ofr-band="strong"] { background: var(--ofr-strong); }
+.ofr-bands-fill[data-ofr-band="good"] { background: var(--ofr-good); }
+.ofr-bands-fill[data-ofr-band="average"] { background: var(--ofr-average); }
+.ofr-bands-fill[data-ofr-band="low"] { background: var(--ofr-low); }
+.ofr-bands-col[data-mine="true"] { color: var(--ofr-accent); font-weight: 700; }
+.ofr-bands-col[data-mine="true"] .ofr-bands-stem { border-bottom: 2px solid var(--ofr-accent); }
+
+/* ==========================================================================
+   Post-game recap (recap.js). Fixed bottom-right; folds to its title bar when
+   it would cover the game's own end-of-game dialog.
+   ========================================================================== */
+.ofr-recap {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483600;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-width: calc((100vw - 32px) / var(--ofr-scale));
+  max-height: calc(min(640px, 100vh - 32px) / var(--ofr-scale));
+  overflow: hidden;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: calc(var(--ofr-panel-radius) + 2px);
+  background: var(--ofr-panel-bg);
+  color: var(--ofr-text);
+  font: 13px/1.45 var(--ofr-ui-font);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: ofr-recap-in 160ms ease-out;
+}
+@keyframes ofr-recap-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .ofr-recap { animation: none; } }
+
+.ofr-recap button { font: inherit; color: inherit; cursor: pointer; }
+.ofr-recap h4 {
+  margin: 0 0 4px;
+  color: var(--ofr-text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ofr-recap-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--ofr-panel-border);
+}
+.ofr-recap-headtext { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 8px; }
+.ofr-recap-title { font-weight: 700; white-space: nowrap; }
+.ofr-recap-meta { overflow: hidden; color: var(--ofr-text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-recap-head button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--ofr-text-dim);
+  font-size: 14px;
+  line-height: 1;
+}
+.ofr-recap-head button:hover { background: var(--ofr-btn-hover); color: var(--ofr-text); }
+
+/* result banner: the coloured edge says how it went before any text is read */
+.ofr-recap-hero {
+  padding: 10px 12px 9px;
+  border-left: 4px solid var(--ofr-average);
+  background: var(--ofr-panel-soft);
+}
+.ofr-recap-hero:empty { display: none; }
+.ofr-recap[data-tone="win"] .ofr-recap-hero { border-left-color: var(--ofr-accent); }
+.ofr-recap[data-tone="good"] .ofr-recap-hero { border-left-color: var(--ofr-good); }
+.ofr-recap[data-tone="loss"] .ofr-recap-hero { border-left-color: var(--ofr-elite); }
+.ofr-recap-result { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.ofr-recap-big { font-size: 26px; font-weight: 800; line-height: 1.1; }
+.ofr-recap[data-tone="win"] .ofr-recap-big { color: var(--ofr-accent); }
+.ofr-recap-of { color: var(--ofr-text-dim); font-size: 14px; font-weight: 600; }
+.ofr-recap-who { display: inline-flex; align-items: center; margin-left: auto; font-weight: 600; }
+.ofr-recap-who .ofr-badge { cursor: default; }
+.ofr-recap-kicker { margin-top: 2px; color: var(--ofr-text-dim); font-size: 12px; }
+
+.ofr-recap-tabs { display: flex; border-bottom: 1px solid var(--ofr-panel-border); }
+.ofr-recap-tabs:empty { display: none; }
+.ofr-recap-tabs button {
+  flex: 1;
+  padding: 6px 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ofr-text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.ofr-recap-tabs button:hover { color: var(--ofr-text); background: var(--ofr-panel-soft); }
+.ofr-recap-tabs button[data-on="true"] { border-bottom-color: var(--ofr-accent); color: var(--ofr-text); }
+
+.ofr-recap-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 12px; scrollbar-width: thin; }
+.ofr-recap-pane { display: grid; gap: 10px; }
+.ofr-recap-note { margin: 0; color: var(--ofr-text-dim); font-size: 11px; }
+.ofr-recap-wait { padding: 6px 0; font-size: 12.5px; color: var(--ofr-text); }
+
+.ofr-recap-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 6px; }
+.ofr-recap-chip {
+  display: grid;
+  align-content: start;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-panel-soft);
+}
+.ofr-recap-chip[data-top="true"] { border-color: color-mix(in srgb, var(--ofr-accent) 70%, transparent); }
+.ofr-recap-chip-value { font-size: 16px; font-weight: 800; line-height: 1.15; }
+.ofr-recap-chip-label { color: var(--ofr-text-dim); font-size: 10px; line-height: 1.2; }
+.ofr-recap-chip-rank { color: var(--ofr-text-dim); font-size: 10px; font-weight: 700; }
+.ofr-recap-chip[data-top="true"] .ofr-recap-chip-rank { color: var(--ofr-accent); }
+
+.ofr-recap-lines { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.ofr-recap-lines li { padding-left: 10px; border-left: 2px solid var(--ofr-track); }
+
+.ofr-recap-awards { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.ofr-recap-awards li { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: baseline; font-size: 12px; }
+.ofr-recap-award-title {
+  color: var(--ofr-text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ofr-recap-award-who { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-recap-award-text { grid-column: 1 / -1; color: var(--ofr-text-dim); font-size: 11px; }
+.ofr-recap-awards li[data-mine="true"] .ofr-recap-award-title,
+.ofr-recap-awards li[data-mine="true"] .ofr-recap-award-who { color: var(--ofr-accent); }
+
+.ofr-recap-more {
+  justify-self: start;
+  padding: 3px 8px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-btn-bg);
+  font-size: 11px;
+}
+.ofr-recap-more:hover { background: var(--ofr-btn-hover); }
+
+.ofr-recap-chart { display: grid; gap: 2px; }
+.ofr-recap .ofr-stack-bar { background: var(--ofr-track); }
+
+.ofr-recap-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.ofr-recap-table th {
+  position: sticky;
+  top: -10px;
+  padding: 3px 4px;
+  background: var(--ofr-panel-bg);
+  color: var(--ofr-text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: left;
+  text-transform: uppercase;
+}
+.ofr-recap-table td { padding: 3px 4px; border-top: 1px solid var(--ofr-track); white-space: nowrap; }
+.ofr-recap-table td:nth-child(n + 3), .ofr-recap-table th:nth-child(n + 3) { text-align: right; }
+.ofr-recap-cell-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+.ofr-recap-cell-name .ofr-badge { cursor: default; }
+.ofr-recap-table tr[data-winner="true"] td:first-child { color: var(--ofr-good); font-weight: 800; }
+.ofr-recap-table tr[data-me="true"] td { background: color-mix(in srgb, var(--ofr-accent) 14%, transparent); font-weight: 700; }
+
+.ofr-recap-foot { display: grid; gap: 2px; color: var(--ofr-text-dim); font-size: 11px; }
+.ofr-recap-foot:not(:empty) { padding: 7px 12px 0; border-top: 1px solid var(--ofr-panel-border); }
+.ofr-recap-actions { display: flex; gap: 6px; padding: 8px 12px 10px; }
+.ofr-recap-actions:empty { display: none; }
+.ofr-recap-actions button {
+  flex: 1;
+  padding: 5px 6px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-btn-bg);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.ofr-recap-actions button:hover { background: var(--ofr-btn-hover); }
+.ofr-recap-actions button:first-child { border-color: color-mix(in srgb, var(--ofr-accent) 65%, transparent); color: var(--ofr-accent); }
+
+/* folded: just the title bar, which then carries the headline */
+.ofr-recap[data-min="true"] { width: auto; min-width: 200px; cursor: pointer; }
+.ofr-recap[data-min="true"] > :not(.ofr-recap-head) { display: none; }
+.ofr-recap[data-min="true"] .ofr-recap-head { border-bottom: 0; }
+
+/* ==========================================================================
+   Chat (chat.js). Docked on the left edge, folded to a tab by default: the
+   recap owns bottom-right, the game's own controls own the bottom-left corner.
+   ========================================================================== */
+.ofr-chat {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  z-index: 2147483590;
+  transform: translateY(-50%);
+  color: var(--ofr-text);
+  font: 13px/1.4 var(--ofr-ui-font);
+  zoom: var(--ofr-scale);
+}
+.ofr-chat button { font: inherit; color: inherit; cursor: pointer; }
+
+.ofr-chat-tab {
+  display: block;
+  padding: 10px 6px;
+  border: 1px solid var(--ofr-panel-border);
+  border-left: 0;
+  border-radius: 0 var(--ofr-panel-radius) var(--ofr-panel-radius) 0;
+  background: var(--ofr-panel-bg);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  writing-mode: vertical-rl;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.ofr-chat-tab:hover { background: var(--ofr-btn-hover); }
+.ofr-chat-tab[data-unread="true"] { border-color: var(--ofr-accent); color: var(--ofr-accent); }
+.ofr-chat[data-open="true"] .ofr-chat-tab { display: none; }
+
+.ofr-chat-panel {
+  display: none;
+  flex-direction: column;
+  width: 300px;
+  height: min(380px, 70vh);
+  margin-left: 8px;
+  overflow: hidden;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: calc(var(--ofr-panel-radius) + 2px);
+  background: var(--ofr-panel-bg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.ofr-chat[data-open="true"] .ofr-chat-panel { display: flex; }
+.ofr-chat[data-mode="paused"] .ofr-chat-panel { height: auto; }
+
+.ofr-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 10px;
+  border-bottom: 1px solid var(--ofr-panel-border);
+}
+.ofr-chat-title { font-weight: 700; white-space: nowrap; }
+.ofr-chat-status { flex: 1; overflow: hidden; color: var(--ofr-text-dim); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-chat-status[data-ok="true"]::before { content: "● "; color: var(--ofr-good); }
+.ofr-chat-status[data-ok="false"]::before { content: "● "; color: var(--ofr-strong); }
+.ofr-chat-mutes, .ofr-chat-fold { border: 0; border-radius: 4px; background: none; color: var(--ofr-text-dim); }
+.ofr-chat-mutes { padding: 2px 4px; font-size: 10.5px; text-decoration: underline; }
+.ofr-chat-fold { width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; }
+.ofr-chat-mutes:hover, .ofr-chat-fold:hover { background: var(--ofr-btn-hover); color: var(--ofr-text); }
+
+.ofr-chat-note {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ofr-panel-border);
+  background: var(--ofr-panel-soft);
+  color: var(--ofr-text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.ofr-chat[data-mode="paused"] .ofr-chat-note { border-bottom: 0; cursor: default; }
+
+.ofr-chat-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 10px; scrollbar-width: thin; overflow-wrap: anywhere; }
+.ofr-chat-row { position: relative; padding: 2px 18px 2px 0; }
+.ofr-chat-row.sys { padding-right: 0; color: var(--ofr-text-dim); font-size: 11px; font-style: italic; }
+.ofr-chat-who { margin-right: 6px; color: var(--ofr-average); font-weight: 700; }
+.ofr-chat-row.mine .ofr-chat-who { color: var(--ofr-accent); }
+.ofr-chat-key { color: var(--ofr-text-dim); font: 400 9.5px ui-monospace, Consolas, monospace; }
+.ofr-chat-text { white-space: pre-wrap; }
+.ofr-chat-mute {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--ofr-text-dim);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+}
+.ofr-chat-row:hover .ofr-chat-mute, .ofr-chat-mute:focus-visible { opacity: 1; }
+.ofr-chat-mute:hover { background: var(--ofr-btn-hover); color: var(--ofr-elite); }
+
+.ofr-chat-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--ofr-panel-border); }
+.ofr-chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-panel-soft);
+  color: var(--ofr-text);
+  font: inherit;
+}
+.ofr-chat-input:focus { outline: 1px solid var(--ofr-accent); }
+.ofr-chat-send {
+  padding: 5px 10px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-btn-bg);
+  font-size: 12px;
+}
+.ofr-chat-send:hover:not(:disabled) { background: var(--ofr-btn-hover); }
+.ofr-chat-send:disabled, .ofr-chat-input:disabled { opacity: 0.5; cursor: default; }
+.ofr-chat [hidden] { display: none !important; }

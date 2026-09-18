@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Theme gallery</title>
+    <style>
+      body { margin: 0; padding: 12px; background: #111318; font: 13px system-ui, sans-serif; color: #ddd; }
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+      iframe { width: 100%; height: 215px; border: 1px solid #2a2d35; border-radius: 8px; background: #1b1e24; }
+      h3 { margin: 0 0 4px; font-size: 12px; color: #9ca3af; }
+    </style>
+  </head>
+  <body>
+    <div class="grid" id="grid"></div>
+    <script src="../src/themes.js"></script>
+    <script>
+      // One iframe per theme: <html data-ofr-theme> is page-wide, so themes can
+      // only be shown side by side in separate documents.
+      const grid = document.getElementById("grid");
+      for (const [id, theme] of Object.entries(globalThis.OFR_THEMES)) {
+        const i = theme.icons;
+        const cell = document.createElement("div");
+        const label = document.createElement("h3");
+        label.textContent = theme.label;
+        const frame = document.createElement("iframe");
+        frame.srcdoc = `<!doctype html><html ${id === "classic" ? "" : `data-ofr-theme="${id}"`}>
+          <head><meta charset="utf-8"><link rel="stylesheet" href="../src/content.css">
+          <style>body{margin:0;padding:8px;background:#1b1e24;color:#e5e7eb;font:12px system-ui}
+          .row{margin:4px 0}.name{color:#fff}.recap{position:static!important;width:auto!important;margin-top:6px}</style></head>
+          <body>
+            <div class="ofr-summary"><span class="ofr-summary-text">avg Top 31% · 2 elite · 3 unranked</span><button class="ofr-copy">Copy</button></div>
+            <div class="row"><span class="name">[LUX] TeNa</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="elite">Top 1% ${i.map}0.5% ${i.hot}</span></div>
+            <div class="row ofr-threat"><span class="name">Rage</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="strong">Top 9% ${i.smurf}</span></div>
+            <div class="row"><span class="name">midguy</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="average">Top 48% ${i.cold}</span>
+              <span class="name" style="margin-left:10px">rival</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-watched="true">${i.star} Top 12%</span></div>
+            <div class="row"><span class="name">weakguy</span><span class="ofr-badge" data-ofr-kind="percentile" data-ofr-band="low">Top 81%</span>
+              <span class="name" style="margin-left:10px">AnonMoss2</span><span class="ofr-badge" data-ofr-kind="missing">guest</span></div>
+            <div class="ofr-recap recap"><div class="ofr-recap-head"><span>Game recap</span><button>✕</button></div>
+              <div class="ofr-recap-body"><div>${i.trophy} Winner: [LUX] TeNa (Top 1%)</div><div>You: #4 of 38 · Top 23%</div></div></div>
+          </body></html>`;
+        cell.append(label, frame);
+        grid.appendChild(cell);
+      }
+    </script>
+  </body>
+</html>

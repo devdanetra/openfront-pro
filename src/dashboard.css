@@ -1,0 +1,358 @@
+/* Pro dashboard. Every colour comes from the tokens in content.css, so the six
+   themes apply here unchanged. */
+.ofr-dash {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483500;
+  display: flex;
+  flex-direction: column;
+  background: var(--ofr-stage-bg);
+  color: var(--ofr-text);
+  font: 14px/1.45 var(--ofr-ui-font);
+}
+
+.ofr-dash-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--ofr-panel-bg);
+  border-bottom: 1px solid var(--ofr-panel-border);
+}
+
+.ofr-dash-brand { font-size: 16px; font-weight: 800; letter-spacing: 0.02em; }
+.ofr-dash-unofficial { font-size: 11px; color: var(--ofr-text-dim); }
+
+.ofr-dash-search {
+  flex: 1;
+  max-width: 380px;
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: var(--ofr-badge-radius);
+  background: var(--ofr-btn-bg);
+  color: var(--ofr-text);
+  font: inherit;
+}
+
+.ofr-dash-close {
+  padding: 4px 10px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: var(--ofr-badge-radius);
+  background: var(--ofr-btn-bg);
+  color: var(--ofr-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.ofr-dash-close:hover { background: var(--ofr-btn-hover); }
+
+.ofr-dash-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.ofr-dash-header { margin-bottom: 18px; }
+.ofr-dash-title { display: flex; align-items: center; gap: 10px; }
+.ofr-dash-name { font-size: 28px; font-weight: 800; }
+.ofr-dash-title .ofr-badge { font-size: 13px; line-height: 20px; margin-left: 0; }
+.ofr-dash-meta { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; color: var(--ofr-text-dim); font-size: 12px; }
+.ofr-dash-link { color: var(--ofr-average); text-decoration: none; }
+.ofr-dash-link:hover { text-decoration: underline; }
+
+.ofr-dash-section {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-panel-soft);
+}
+.ofr-dash-section h2 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ofr-text-dim);
+}
+.ofr-dash-note, .ofr-dash-empty, .ofr-dash-loading { margin: 0 0 10px; color: var(--ofr-text-dim); font-size: 12px; }
+
+.ofr-dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.ofr-dash-tile {
+  padding: 10px 12px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: calc(var(--ofr-panel-radius) - 2px);
+  background: var(--ofr-panel-bg);
+}
+.ofr-dash-tile-value { font-size: 22px; font-weight: 800; line-height: 1.1; }
+.ofr-dash-tile-label { margin-top: 3px; font-size: 11px; color: var(--ofr-text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+.ofr-dash-tile-sub { margin-top: 2px; font-size: 11px; color: var(--ofr-text-dim); }
+
+/* bar chart */
+.ofr-dash-bars { display: grid; gap: 6px; }
+.ofr-dash-bar-row { display: grid; grid-template-columns: 150px 1fr 150px; align-items: center; gap: 10px; font-size: 12px; }
+.ofr-dash-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofr-dash-bar-track { height: 10px; border-radius: 5px; background: rgba(127, 127, 127, 0.18); overflow: hidden; }
+.ofr-dash-bar-fill { display: block; height: 100%; background: var(--ofr-average); }
+.ofr-dash-bar-fill[data-ofr-band="elite"] { background: var(--ofr-elite); }
+.ofr-dash-bar-fill[data-ofr-band="strong"] { background: var(--ofr-strong); }
+.ofr-dash-bar-fill[data-ofr-band="good"] { background: var(--ofr-good); }
+.ofr-dash-bar-fill[data-ofr-band="average"] { background: var(--ofr-average); }
+.ofr-dash-bar-fill[data-ofr-band="low"] { background: var(--ofr-low); }
+.ofr-dash-bar-value { text-align: right; color: var(--ofr-text-dim); white-space: nowrap; }
+
+/* win/loss strip */
+.ofr-dash-strip { display: flex; flex-wrap: wrap; gap: 3px; }
+.ofr-dash-strip-cell { width: 14px; height: 22px; border-radius: 3px; background: var(--ofr-low); opacity: 0.55; }
+.ofr-dash-strip-cell.won { background: var(--ofr-good); opacity: 1; }
+/* team games: outlined, because the result is the team's */
+.ofr-dash-strip-cell[data-mode="team"] { background: none; box-shadow: inset 0 0 0 2px var(--ofr-low); }
+.ofr-dash-strip-cell[data-mode="team"].won { box-shadow: inset 0 0 0 2px var(--ofr-good); }
+.ofr-dash-strip-cell[data-mode="duel"] { border-radius: 50%; height: 14px; align-self: center; }
+
+/* recent games table */
+.ofr-dash-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ofr-dash-table th { text-align: left; padding: 6px 8px; color: var(--ofr-text-dim); font-weight: 600; border-bottom: 1px solid var(--ofr-panel-border); }
+.ofr-dash-table td { padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, var(--ofr-panel-border) 50%, transparent); }
+.ofr-dash-table tr.won td:first-child a { color: var(--ofr-good); }
+.ofr-dash-table tr.lost td:first-child a { color: var(--ofr-text-dim); }
+.ofr-dash-table a { color: inherit; text-decoration: none; font-weight: 700; }
+.ofr-dash-table a:hover { text-decoration: underline; }
+
+/* clan section */
+.ofr-dash-members { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; font-size: 12px; }
+.ofr-dash-member { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 4px; background: var(--ofr-panel-bg); }
+.ofr-dash-member span:last-child { color: var(--ofr-text-dim); white-space: nowrap; }
+
+/* "Pro" button added to OpenFront's nav bar */
+.ofr-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 5px 12px;
+  border: 1px solid var(--ofr-accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ofr-accent) 14%, transparent);
+  color: var(--ofr-accent);
+  font: 700 12px/1 var(--ofr-ui-font);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.ofr-nav-btn:hover { background: color-mix(in srgb, var(--ofr-accent) 26%, transparent); }
+
+/* Preferred placement: a small tilted tag under the OPENFRONT wordmark, to the
+   right of the version number, so the header reads "OPENFRONT PRO". */
+.ofr-logo-host { position: relative; }
+.ofr-nav-btn.ofr-logo-tag {
+  position: absolute;
+  right: -4px;
+  bottom: 1px;
+  margin: 0;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border-width: 1.5px;
+  background: color-mix(in srgb, var(--ofr-accent) 22%, #0b0d12);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  transform: rotate(-8deg);
+  transform-origin: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  transition: transform 0.12s ease, background 0.12s ease;
+  z-index: 1;
+}
+.ofr-nav-btn.ofr-logo-tag:hover {
+  transform: rotate(-3deg) scale(1.08);
+  background: color-mix(in srgb, var(--ofr-accent) 38%, #0b0d12);
+}
+
+/* Trends: a row of chart cards */
+.ofr-dash-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.ofr-dash-chart {
+  padding: 10px 12px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-panel-soft);
+}
+.ofr-dash-chart h3 { margin: 0 0 6px; font-size: 12px; font-weight: 700; color: var(--ofr-text); }
+.ofr-dash-chart .ofr-dash-note { margin: 6px 0 0; }
+
+
+/* compare view */
+.ofr-dash-compare-input {
+  margin-left: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: var(--ofr-badge-radius);
+  background: var(--ofr-btn-bg);
+  color: var(--ofr-text);
+  font: inherit;
+  width: 180px;
+}
+.ofr-dash-cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ofr-dash-cmp th { text-align: left; padding: 6px 8px; color: var(--ofr-text-dim); border-bottom: 1px solid var(--ofr-panel-border); }
+.ofr-dash-cmp td { padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, var(--ofr-panel-border) 50%, transparent); }
+.ofr-dash-cmp td.better { color: var(--ofr-good); font-weight: 700; }
+.ofr-dash-cmp td.metric { color: var(--ofr-text-dim); }
+
+/* weekly clan leaderboard */
+.ofr-dash-lb { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ofr-dash-lb th { text-align: left; padding: 5px 8px; color: var(--ofr-text-dim); border-bottom: 1px solid var(--ofr-panel-border); }
+.ofr-dash-lb td { padding: 5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--ofr-panel-border) 50%, transparent); }
+.ofr-dash-lb tr.mine td { color: var(--ofr-accent); font-weight: 700; }
+
+/* session strip */
+.ofr-dash-session { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.ofr-dash-session span { padding: 2px 7px; border-radius: 999px; background: var(--ofr-panel-bg); font-size: 11px; color: var(--ofr-text-dim); }
+.ofr-dash-session span.won { color: var(--ofr-good); }
+
+/* home-page stats card, under the username field */
+.ofr-home {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: var(--ofr-panel-radius);
+  background: var(--ofr-panel-soft);
+  color: var(--ofr-text);
+  font: 13px/1.4 var(--ofr-ui-font);
+  text-align: left;
+}
+.ofr-home-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ofr-home-brand { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ofr-accent); }
+.ofr-home-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--ofr-btn-border);
+  border-radius: 999px;
+  background: var(--ofr-btn-bg);
+  color: var(--ofr-text);
+  font: 700 11px var(--ofr-ui-font);
+  cursor: pointer;
+}
+.ofr-home-btn:hover { background: var(--ofr-btn-hover); }
+.ofr-home-title { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
+.ofr-home-name { font-size: 18px; font-weight: 800; }
+.ofr-home-title .ofr-badge { margin-left: 0; font-size: 12px; line-height: 18px; }
+.ofr-home-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ofr-home-grid .ofr-dash-tile { padding: 6px 8px; }
+.ofr-home-grid .ofr-dash-tile-value { font-size: 16px; }
+.ofr-home-note, .ofr-home-empty { margin: 8px 0 4px; font-size: 11px; color: var(--ofr-text-dim); }
+.ofr-home .ofr-dash-strip-cell { width: 10px; height: 16px; }
+
+/* ==========================================================================
+   Layout templates (see content.css for size). Default is "cards" = the rules
+   above; these two only override.
+   ========================================================================== */
+
+/* Compact */
+html[data-ofr-layout="compact"] .ofr-home { padding: 6px 10px; margin: 6px 0; }
+html[data-ofr-layout="compact"] .ofr-home-bar { margin-bottom: 2px; }
+html[data-ofr-layout="compact"] .ofr-home-title { margin: 0 0 4px; }
+html[data-ofr-layout="compact"] .ofr-home-name { font-size: 15px; }
+html[data-ofr-layout="compact"] .ofr-home-grid { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+html[data-ofr-layout="compact"] .ofr-home-grid .ofr-dash-tile {
+  display: flex; align-items: baseline; gap: 5px;
+  padding: 0; border: 0; background: none;
+}
+html[data-ofr-layout="compact"] .ofr-home-grid .ofr-dash-tile-value { font-size: 13px; }
+html[data-ofr-layout="compact"] .ofr-home-grid .ofr-dash-tile-label { margin: 0; font-size: 10px; text-transform: none; letter-spacing: 0; }
+html[data-ofr-layout="compact"] .ofr-home-grid .ofr-dash-tile-sub { display: none; }
+html[data-ofr-layout="compact"] .ofr-home .ofr-dash-strip { gap: 2px; }
+html[data-ofr-layout="compact"] .ofr-home .ofr-dash-strip-cell { width: 7px; height: 11px; }
+html[data-ofr-layout="compact"] .ofr-home-note { margin: 4px 0 2px; }
+html[data-ofr-layout="compact"] .ofr-dash-body { padding: 10px 14px; }
+html[data-ofr-layout="compact"] .ofr-dash-section { padding: 8px 10px; margin-bottom: 10px; }
+html[data-ofr-layout="compact"] .ofr-dash-section h2 { margin-bottom: 6px; }
+html[data-ofr-layout="compact"] .ofr-dash-grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+html[data-ofr-layout="compact"] .ofr-dash-tile { padding: 6px 8px; }
+html[data-ofr-layout="compact"] .ofr-dash-tile-value { font-size: 16px; }
+html[data-ofr-layout="compact"] .ofr-dash-name { font-size: 22px; }
+html[data-ofr-layout="compact"] .ofr-dash-bar-row { grid-template-columns: 120px 1fr 130px; font-size: 11px; }
+html[data-ofr-layout="compact"] .ofr-dash-table, html[data-ofr-layout="compact"] .ofr-dash-lb { font-size: 11px; }
+
+/* Panel */
+html[data-ofr-layout="panel"] .ofr-home {
+  position: fixed;
+  right: 16px;
+  top: 84px;
+  width: 300px;
+  margin: 0;
+  z-index: 2147483400;
+  background: var(--ofr-panel-bg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+html[data-ofr-layout="panel"] .ofr-home-grid { grid-template-columns: repeat(2, 1fr); }
+html[data-ofr-layout="panel"] .ofr-dash {
+  left: auto;
+  width: min(560px, 100vw);
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+}
+html[data-ofr-layout="panel"] .ofr-dash-body { max-width: none; padding: 14px; }
+html[data-ofr-layout="panel"] .ofr-dash-grid { grid-template-columns: repeat(2, 1fr); }
+html[data-ofr-layout="panel"] .ofr-dash-bar-row { grid-template-columns: 100px 1fr 120px; }
+html[data-ofr-layout="panel"] .ofr-dash-search { max-width: 220px; }
+html[data-ofr-layout="panel"] .ofr-dash-name { font-size: 22px; }
+
+/* The card is a full-width block under the username strip (cards / compact). */
+.ofr-home { width: 100%; box-sizing: border-box; }
+
+/* Panel: clear of the centred content column (ends ~995px at 1280 wide). */
+html[data-ofr-layout="panel"] .ofr-home { right: 12px; top: 96px; width: 260px; }
+html[data-ofr-layout="panel"] .ofr-home-grid { grid-template-columns: repeat(2, 1fr); gap: 5px; }
+html[data-ofr-layout="panel"] .ofr-home-grid .ofr-dash-tile { padding: 5px 7px; }
+html[data-ofr-layout="panel"] .ofr-home-grid .ofr-dash-tile-value { font-size: 15px; }
+@media (max-width: 1260px) {
+  html[data-ofr-layout="panel"] .ofr-home { position: static; width: 100%; box-shadow: none; }
+}
+
+/* settings overlay: the popup page in an iframe, opened from the account menu,
+   the home card or the dashboard */
+.ofr-settings {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483640;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+.ofr-settings-box {
+  display: flex;
+  flex-direction: column;
+  width: min(360px, 94vw);
+  height: min(720px, 90vh);
+  border: 1px solid var(--ofr-panel-border);
+  border-radius: calc(var(--ofr-panel-radius) + 2px);
+  background: var(--ofr-stage-bg);
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.ofr-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ofr-panel-border);
+  color: var(--ofr-text);
+  font: 700 13px var(--ofr-ui-font);
+}
+.ofr-settings-head button {
+  border: 0;
+  background: none;
+  color: var(--ofr-text-dim);
+  font-size: 15px;
+  cursor: pointer;
+}
+.ofr-settings-box iframe { flex: 1; width: 100%; border: 0; background: var(--ofr-stage-bg); }
+
+.ofr-home-btns { display: inline-flex; gap: 6px; }

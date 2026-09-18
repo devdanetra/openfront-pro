@@ -1,0 +1,77 @@
+{
+  "manifest_version": 3,
+  "name": "OpenFront Pro",
+  "version": "5.6.1",
+  "description": "Unofficial. Player rankings, form, map preview and scouting for OpenFront lobbies. Not affiliated with OpenFront.",
+  "permissions": [
+    "activeTab",
+    "clipboardWrite",
+    "notifications",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://openfront.io/*",
+    "https://*.openfront.io/*",
+    "https://api.ofstats.io/*",
+    "https://api.openfront.io/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "OpenFront Pro (unofficial)",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://openfront.io/*",
+        "https://*.openfront.io/*"
+      ],
+      "js": [
+        "src/themes.js",
+        "src/scoring.js",
+        "src/map-viewer.js",
+        "src/charts.js",
+        "src/dashboard.js",
+        "src/recap.js",
+        "src/chat.js",
+        "src/content.js"
+      ],
+      "css": [
+        "src/content.css",
+        "src/dashboard.css",
+        "src/site-layouts.css",
+        "src/page-themes.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/page-probe.js",
+        "sounds/alert.wav",
+        "src/popup.html",
+        "src/popup.js",
+        "src/themes.js",
+        "src/content.css"
+      ],
+      "matches": [
+        "https://openfront.io/*",
+        "https://*.openfront.io/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "short_name": "OpenFront Pro"
+}

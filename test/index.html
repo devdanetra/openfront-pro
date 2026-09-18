@@ -1,0 +1,66 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../src/content.css"><link rel="stylesheet" href="../src/dashboard.css">
+<style>body{background:#111;color:#fff;font:14px system-ui}</style></head>
+<body>
+<!-- Mirrors LobbyPlayerView output: FFA tags, team cards, unassigned column -->
+<lobby-player-view>
+  <div class="players-list block rounded-lg border border-white/10 bg-white/5 p-2">
+    <span class="player-tag"><span class="text-white">[LUX] TeNa
+      <svg viewBox="0 0 24 24" class="inline-block w-3.5 h-3.5"><circle cx="12" cy="12" r="10"/></svg>
+    </span><span class="host-badge">(host)</span></span>
+    <span class="player-tag current-player"><span class="text-white">Firedan </span></span>
+    <div class="px-2 py-1 rounded-sm mb-1 text-xs text-white border">[DFY] Rage </div>
+    <div class="p-2 flex flex-col gap-1.5">
+      <div class="px-2 py-1 rounded-sm text-xs flex items-center justify-between border">
+        <span class="flex items-center gap-1 min-w-0"><span class="truncate text-white">nonexistent_player_xyz</span></span>
+      </div>
+    </div>
+  </div>
+  <div class="players-list block rounded-lg border p-2">
+    <span class="player-tag"><span class="text-white">AnonMoss2 </span></span>
+    <span class="player-tag"><span class="text-white">👤 Kind Panda </span></span>
+    <span class="player-tag"><span class="text-white">brandnewguy </span></span>
+  </div>
+</lobby-player-view>
+<!-- Mirrors PlayerInfoOverlay: hover panel during a game -->
+<player-info-overlay>
+  <div class="flex items-center gap-1 lg:gap-2 font-bold text-sm lg:text-lg">
+    <div class="shrink min-w-0">
+      <span class="font-mono inline-block leading-[1.2] wrap-anywhere" style="font-size: 16px">[LUX] TeNa</span>
+    </div>
+  </div>
+</player-info-overlay>
+<player-info-overlay id="bot">
+  <div class="flex items-center gap-1 lg:gap-2 font-bold text-sm lg:text-lg">
+    <div class="shrink min-w-0">
+      <span class="font-mono inline-block leading-[1.2] wrap-anywhere">France</span>
+    </div>
+  </div>
+</player-info-overlay>
+<!-- team cards (for the per-team summary) -->
+<div class="players-list block rounded-lg border p-2">
+  <div class="bg-gray-800 border rounded-xl">
+    <div class="px-2 py-1 font-bold">Red</div>
+    <div class="p-2 flex flex-col gap-1.5">
+      <div class="px-2 py-1 rounded-sm text-xs flex"><span class="flex items-center gap-1 min-w-0"><span class="truncate text-white">[LUX] TeNa</span></span></div>
+      <div class="px-2 py-1 rounded-sm text-xs flex"><span class="flex items-center gap-1 min-w-0"><span class="truncate text-white">[LUX] Jarques</span></span></div>
+    </div>
+  </div>
+  <div class="bg-gray-800 border rounded-xl">
+    <div class="px-2 py-1 font-bold">Blue</div>
+    <div class="p-2 flex flex-col gap-1.5">
+      <div class="px-2 py-1 rounded-sm text-xs flex"><span class="flex items-center gap-1 min-w-0"><span class="truncate text-white">weakguy</span></span></div>
+      <div class="px-2 py-1 rounded-sm text-xs flex"><span class="flex items-center gap-1 min-w-0"><span class="truncate text-white">midguy</span></span></div>
+    </div>
+  </div>
+</div>
+<!-- in-game leaderboard (StatsTable) -->
+<player-stats>
+  <div class="stats-table-row grid col-span-full">
+    <div class="stats-table-cell"><span class="block w-full truncate">[LUX] TeNa</span></div>
+    <div class="stats-table-cell"><span class="block w-full truncate">1.2M</span></div>
+  </div>
+</player-stats>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+</body></html>

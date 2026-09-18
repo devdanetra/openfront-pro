@@ -1,0 +1,186 @@
+/* ==========================================================================
+   Site layout templates: re-arrange OpenFront's own front page. Chosen in the
+   popup ("Website layout"), applied as <html data-ofr-site="...">.
+
+   Hooks, from the live page (v0.34). Everything is Tailwind utilities, so the
+   only stable handles are the custom elements and the structure around them:
+
+     main > div                      the centred column, lg:max-w-[20cm] (756px
+                                     of a 1280px window - the reason the site
+                                     feels narrow)
+     div:has(> streaming-now)        top grid: [news, name strip, Pro card] | streams
+     game-mode-selector > div        play grid: featured lobby | upcoming,
+                                     then the SOLO/TUTORIAL and CREATE/RANKED/JOIN rows
+     desktop-nav-bar > nav           the top nav, a flex row
+
+   Rules use !important because they compete with responsive utilities. Ads are
+   deliberately left alone in every template: they fund the game.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. WIDE - use the whole window. Bigger featured map, upcoming lobbies two
+   abreast.
+   -------------------------------------------------------------------------- */
+html[data-ofr-site="wide"] main > div {
+  max-width: min(1500px, 96vw) !important;
+}
+html[data-ofr-site="wide"] game-mode-selector > div {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) !important;
+}
+html[data-ofr-site="wide"] game-mode-selector section {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-rows: auto 1fr !important;
+  gap: 1rem !important;
+}
+html[data-ofr-site="wide"] game-mode-selector section > h2 {
+  grid-column: 1 / -1 !important;
+  grid-row: 1 !important;
+}
+html[data-ofr-site="wide"] game-mode-selector section > div {
+  grid-row: 2 !important;
+  min-height: 200px;
+}
+html[data-ofr-site="wide"] div:has(> streaming-now) {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) !important;
+}
+
+/* --------------------------------------------------------------------------
+   2. SIDEBAR - the nav becomes a fixed left rail, content takes the rest.
+   -------------------------------------------------------------------------- */
+html[data-ofr-site="sidebar"] body {
+  padding-left: 232px !important;
+  box-sizing: border-box;
+}
+html[data-ofr-site="sidebar"] desktop-nav-bar {
+  position: fixed !important;
+  left: 0;
+  top: var(--top-ad-height, 0px) !important;
+  bottom: 0;
+  width: 232px;
+  height: auto !important;
+  z-index: 60;
+}
+html[data-ofr-site="sidebar"] desktop-nav-bar > nav {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  height: 100% !important;
+  padding: 18px 14px !important;
+  gap: 4px !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+/* logo block */
+html[data-ofr-site="sidebar"] desktop-nav-bar > nav > div:first-child {
+  margin: 0 0 18px !important;
+  align-items: flex-start !important;
+}
+/* nav links, including the one wrapped in a div (Store) */
+html[data-ofr-site="sidebar"] desktop-nav-bar > nav > button.nav-menu-item,
+html[data-ofr-site="sidebar"] desktop-nav-bar > nav > div > button.nav-menu-item {
+  display: block !important;
+  width: 100% !important;
+  padding: 10px 12px !important;
+  border-radius: 8px;
+  text-align: left !important;
+}
+html[data-ofr-site="sidebar"] desktop-nav-bar > nav > button.nav-menu-item:hover,
+html[data-ofr-site="sidebar"] desktop-nav-bar > nav > div > button.nav-menu-item:hover,
+html[data-ofr-site="sidebar"] desktop-nav-bar > nav > button.nav-menu-item.active {
+  background: rgba(255, 255, 255, 0.08);
+}
+/* right-hand group (bell, help, settings, account) drops to the bottom */
+html[data-ofr-site="sidebar"] desktop-nav-bar > nav > div.border-l {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  margin: auto 0 0 !important;
+  padding: 12px 0 0 !important;
+  border-left: 0 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+html[data-ofr-site="sidebar"] nav-account-menu > div > button {
+  width: 100% !important;
+  justify-content: flex-start !important;
+}
+/* the account dropdown would open below the viewport down here: flip it up */
+html[data-ofr-site="sidebar"] nav-account-menu [role="menu"] {
+  top: auto !important;
+  bottom: calc(100% + 6px) !important;
+  left: 0 !important;
+  right: auto !important;
+}
+/* the PRO tag lives in the logo block; only the fallback pill needs room here */
+html[data-ofr-site="sidebar"] desktop-nav-bar .ofr-nav-btn:not(.ofr-logo-tag) {
+  order: 50;
+  margin: 8px 0 0 !important;
+  justify-content: center;
+  width: 100%;
+}
+html[data-ofr-site="sidebar"] desktop-nav-bar .ofr-logo-host {
+  align-self: flex-start;
+  padding-right: 22px;
+}
+html[data-ofr-site="sidebar"] main > div {
+  max-width: min(1300px, 100%) !important;
+}
+@media (max-width: 1023px) {
+  /* below lg the site shows its mobile nav instead; leave it alone */
+  html[data-ofr-site="sidebar"] body { padding-left: 0 !important; }
+}
+
+/* --------------------------------------------------------------------------
+   3. FOCUS - just the game: one narrow column, no news, streams or promos,
+   the play buttons straight under the featured lobby.
+   -------------------------------------------------------------------------- */
+html[data-ofr-site="focus"] news-box,
+html[data-ofr-site="focus"] streaming-now,
+html[data-ofr-site="focus"] homepage-promos,
+html[data-ofr-site="focus"] steam-wishlist {
+  display: none !important;
+}
+html[data-ofr-site="focus"] main > div {
+  max-width: 680px !important;
+}
+html[data-ofr-site="focus"] div:has(> streaming-now) {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+html[data-ofr-site="focus"] game-mode-selector > div {
+  grid-template-columns: minmax(0, 1fr) !important;
+  /* The site pins row 2 at 360px for the featured lobby. Re-ordered into one
+     column, that left the 64px SOLO row in a 360px track and pushed everything
+     after it ~300px down. Let every row size to its content instead. */
+  grid-template-rows: none !important;
+  grid-auto-rows: auto !important;
+}
+/* explicit order: featured, SOLO/TUTORIAL, CREATE/RANKED/JOIN, then upcoming */
+html[data-ofr-site="focus"] game-mode-selector > div > div.min-w-0 {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  min-height: 300px;
+}
+html[data-ofr-site="focus"] game-mode-selector > div > div.h-14:not(.grid) {
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+  height: 64px !important;
+}
+html[data-ofr-site="focus"] game-mode-selector > div > div.grid.h-14 {
+  grid-column: 1 !important;
+  grid-row: 3 !important;
+}
+html[data-ofr-site="focus"] game-mode-selector > div > section {
+  grid-column: 1 !important;
+  grid-row: 4 !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-rows: auto auto !important;
+  gap: 1rem !important;
+}
+html[data-ofr-site="focus"] game-mode-selector > div > section > h2 {
+  grid-column: 1 / -1 !important;
+  grid-row: 1 !important;
+}
+html[data-ofr-site="focus"] game-mode-selector > div > section > div {
+  grid-row: 2 !important;
+  min-height: 150px;
+}
