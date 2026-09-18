@@ -10,6 +10,21 @@ hover panel during a game and on the in-game leaderboard.
 [LUX] TeNa  Top 3% 🔥      Firedan  Top 1% 🗺0.5%      [DFY] Rage  Top 2%
 ```
 
+## Screenshots
+
+![Rank badges next to every player in the lobby, with lobby strength summary](store/screenshot-1.png)
+
+<table>
+  <tr>
+    <td width="50%"><img src="store/screenshot-2.png" alt="Stats dashboard: world rank, win rate, recent form and trends"></td>
+    <td width="50%"><img src="store/screenshot-3.png" alt="Game recap: placement, survival curve, lobby comparison and share image"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="store/screenshot-4.png" alt="Themes applied to the extension and the site: Neon, Pastel, Tactical, High contrast"></td>
+    <td width="50%"><img src="store/screenshot-5.png" alt="Sidebar website layout"></td>
+  </tr>
+</table>
+
 ## Install
 
 1. `chrome://extensions` → enable **Developer mode**.
