@@ -18,7 +18,16 @@ const WORK = path.join(ROOT, ".vendor-build");
 const OUT = path.join(ROOT, "src/vendor/nostr-crypto.js");
 
 fs.mkdirSync(WORK, { recursive: true });
-fs.writeFileSync(path.join(WORK, "package.json"), JSON.stringify({ name: "ofr-vendor-build", private: true, type: "module" }));
+// Keep what else lives in this sandbox (tools/build-launcher.mjs needs postject,
+// resedit and pe-library here): npm would prune packages missing from package.json.
+const pkgPath = path.join(WORK, "package.json");
+let pkg = { name: "ofr-vendor-build", private: true, type: "module" };
+try {
+  pkg = { ...JSON.parse(fs.readFileSync(pkgPath, "utf8")), type: "module" };
+} catch {
+  // first run
+}
+fs.writeFileSync(pkgPath, JSON.stringify(pkg));
 fs.writeFileSync(
   path.join(WORK, "entry.js"),
   `import { schnorr, secp256k1 } from "@noble/curves/secp256k1";
