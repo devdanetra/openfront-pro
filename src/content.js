@@ -65,12 +65,13 @@ let settings = {
   themeSite: true,
   profileLink: "dashboard",
   clanStats: true,
-  autoEmbargoTeams: false,
   streamerMode: false,
   soundAlerts: true,
   autoCopyReport: false,
+  dataConsent: false,
   chatEnabled: false,
-  chatDuringGame: true,
+  chatConsent: false,
+  chatInFfa: false,
   chatFilter: true,
   layout: "cards",
   uiSize: "medium",
@@ -181,6 +182,11 @@ function isSelf(name) {
 // Opens the Pro dashboard (dashboard.js) for a player, with their clan when
 // the lobby has told us one.
 function openDashboard(name) {
+  if (!settings.dataConsent) {
+    // the dashboard is made of lookups; ask first
+    chrome.runtime.sendMessage({ type: "openWelcome" }).catch(() => {});
+    return;
+  }
   if (typeof globalThis.__ofrOpenDashboard !== "function") return;
   // A guest handle ("AnonRelic3") or a hidden name is nobody in particular;
   // open the empty dashboard with its search box instead of looking it up.
@@ -1084,23 +1090,6 @@ async function loadRecap(gameId) {
 let lastLobbyMap = null;
 let lastLobbyMode = null;
 
-// "Stop trading with all" at the start of a team game, if enabled. The actual
-// game action is sent by page-probe.js (it has to run in the page world); this
-// side decides *whether*, once per game, and only for a lobby it saw as Team.
-const embargoRequested = new Set();
-
-function checkAutoEmbargo() {
-  if (!settings.autoEmbargoTeams) return;
-  const gameId = currentGameId();
-  if (!gameId || embargoRequested.has(gameId)) return;
-  if (lastLobbyMode !== "Team") return;
-  if (!document.querySelector("player-panel")) return; // game not running yet
-  embargoRequested.add(gameId);
-  document.dispatchEvent(new CustomEvent("ofr:embargo-reset"));
-  document.dispatchEvent(new CustomEvent("ofr:embargo-all"));
-  report({ autoEmbargo: "requested", gameId });
-}
-
 // A short two-tone beep, from a file in the package. Browsers refuse audio
 // before the page has been interacted with; the play() rejection is swallowed.
 function playAlert() {
@@ -1646,7 +1635,7 @@ function readGameState() {
 function syncChat() {
   const chat = globalThis.OFR_CHAT;
   if (!chat || !alive()) return;
-  if (!settings.enabled || !settings.chatEnabled) {
+  if (!settings.enabled || !settings.chatEnabled || !settings.chatConsent) {
     chat.sync({ enabled: false, gameId: null });
     return;
   }
@@ -1665,7 +1654,10 @@ function syncChat() {
     gameId,
     // Streamer mode keeps your name off the screen; it stays off the wire too.
     name: settings.streamerMode || !plain ? "Player" : `${clan ? `[${clan}] ` : ""}${plain}`,
-    mode: playing && !settings.chatDuringGame ? "paused" : "open",
+    // During play: open in team games (team talk is part of the game), paused in a
+    // free-for-all while you are alive - OpenFront's terms forbid outside channels
+    // for coordinating there. An unknown mode is treated as a free-for-all.
+    mode: playing && !/team/i.test(game?.mode ?? lastLobbyMode ?? "") && !settings.chatInFfa ? "paused" : "open",
     phase: lobbyId && !game?.running ? "lobby" : over || game?.alive === false ? "after" : "game",
     filter: settings.chatFilter !== false,
   });
@@ -1724,7 +1716,7 @@ function report(detail) {
   // must still show this when the worker is the thing that is broken.
   try {
     chrome.storage.local.set({
-      lastReport: { ...detail, url: location.href, at: Date.now() },
+      lastReport: { ...detail, url: `${location.host}${currentGameId() ? " (in a game)" : ""}`, at: Date.now() },
     });
   } catch {
     // extension reloading; the next scan reports again
@@ -1733,6 +1725,13 @@ function report(detail) {
 
 async function refresh() {
   if (!settings.enabled) return;
+  if (!settings.dataConsent) {
+    // Not agreed to lookups (src/welcome.html): nothing leaves the browser. The
+    // PRO button stays, and leads to that page.
+    installNavButton();
+    syncChat();
+    return;
+  }
   const lobby = readMapInfo();
   if (lobby?.map) {
     lastLobbyMap = lobby.map;
@@ -1740,7 +1739,6 @@ async function refresh() {
   }
   noteClientId();
   checkRecap();
-  checkAutoEmbargo();
   syncChat();
   installNavButton();
   installHomeWidget();
@@ -1897,7 +1895,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes.theme || changes.themeSite) applyTheme();
   if (changes.theme) recapWidget?.refresh();
-  if (changes.enabled || changes.chatEnabled || changes.chatDuringGame || changes.chatFilter || changes.streamerMode) syncChat();
+  if (changes.enabled || changes.chatEnabled || changes.chatConsent || changes.chatInFfa || changes.chatFilter || changes.streamerMode) syncChat();
   if (changes.streamerMode && lastRecord && recapWidget?.el.isConnected && globalThis.OFR_RECAP) {
     lastRecap = globalThis.OFR_RECAP.analyse(lastRecord, recapContext());
     recapWidget.setModel(lastRecap);

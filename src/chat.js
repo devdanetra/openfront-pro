@@ -244,10 +244,17 @@
     const status = el("span", "ofr-chat-status");
     const mutes = el("button", "ofr-chat-mutes");
     mutes.type = "button";
+    const reportLink = el("button", "ofr-chat-mutes", "Report");
+    reportLink.type = "button";
+    reportLink.title = "Report abuse to the extension's maintainers (opens GitHub)";
+    reportLink.addEventListener("click", (e) => {
+      if (!e.isTrusted) return;
+      window.open("https://github.com/devdanetra/openfront-pro/issues/new?labels=chat-abuse&title=Chat%20abuse%20report", "_blank", "noopener");
+    });
     const fold = el("button", "ofr-chat-fold", "–");
     fold.type = "button";
     fold.title = "Fold";
-    head.append(title, status, mutes, fold);
+    head.append(title, status, mutes, reportLink, fold);
     const note = el("div", "ofr-chat-note");
     const list = el("div", "ofr-chat-log");
     list.setAttribute("role", "log");
@@ -303,7 +310,7 @@
       muted.add(key);
       store.set(MUTED_KEY, [...muted].slice(-500));
       log = log.filter((m) => m.pubkey !== key);
-      push({ kind: "sys", text: "Muted. You will not see them again.", at: Date.now() });
+      push({ kind: "sys", text: "Muted for this game.", at: Date.now() });
       render();
     });
     note.addEventListener("click", () => {
@@ -339,7 +346,7 @@
 
     if (paused) {
       ui.note.hidden = false;
-      ui.note.textContent = "Paused while you are playing (you switched off chat during the game). It opens again when you are out or the game ends.";
+      ui.note.textContent = "Paused while you are alive in a free-for-all: OpenFront's terms do not allow outside channels for coordinating there. It opens again when you are out or the game ends. (Team games keep it open.)";
       ui.list.replaceChildren();
       ui.list.hidden = true;
       ui.form.hidden = true;
@@ -350,7 +357,7 @@
     ui.note.hidden = noteSeen;
     if (!noteSeen) {
       ui.note.textContent =
-        "Only players with OpenFront Pro see this. Names are NOT verified - anyone can type any name; the letters after a name identify the sender's key. Messages pass through public Nostr relays (they see your IP address, players do not). × mutes someone for good. Click to dismiss.";
+        "This chat is PUBLIC. Messages travel through public Nostr relays: anyone connected to them can read this room, the relays see your IP address, and nobody can promise they keep nothing. While chat is on, your OpenFront name and clan tag are announced to the room even if you do not type. Names are NOT verified; the letters after a name identify the sender's key for this game. x mutes a sender, Report opens the project's issue page. Click to dismiss.";
     }
     ui.input.placeholder = want.phase === "lobby" ? "Message the lobby…" : "Message the game…";
     ui.input.disabled = relays.open === 0;

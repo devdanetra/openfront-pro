@@ -178,7 +178,14 @@
       } catch {
         // mid-teardown; report what we have
       }
-      next = JSON.stringify({ running: true, spawn, alive, clientId });
+      let mode = null;
+      try {
+        const m = game.config?.()?.gameConfig?.()?.gameMode;
+        if (typeof m === "string") mode = m.slice(0, 40);
+      } catch {
+        // not readable in this build
+      }
+      next = JSON.stringify({ running: true, spawn, alive, clientId, mode });
     }
     if ((document.documentElement.dataset[GAME_ATTR] ?? "") !== next) {
       if (next) document.documentElement.dataset[GAME_ATTR] = next;
@@ -187,70 +194,4 @@
   }
   publishGame();
   setInterval(publishGame, 1000);
-
-  // --- "Stop trading with all" on request ----------------------------------
-  // The game's own button for this lives on <player-panel>, whose click handler
-  // emits SendEmbargoAllIntentEvent on the game's event bus. The event class is
-  // bundled and out of reach, but the panel's handler is a plain method on a
-  // Lit element in this world, so it can be called directly. The content script
-  // asks via a DOM event (the only channel across worlds), and this waits until
-  // the player has actually spawned, since the server rejects the intent before
-  // that. Reports back on a data attribute.
-  const EMBARGO_ATTR = "ofrEmbargo";
-  let embargoTimer = null;
-
-  document.addEventListener("ofr:embargo-all", () => {
-    if (embargoTimer) return;
-    const started = Date.now();
-    document.documentElement.dataset[EMBARGO_ATTR] = "waiting";
-    embargoTimer = setInterval(() => {
-      if (Date.now() - started > 180000) {
-        clearInterval(embargoTimer);
-        embargoTimer = null;
-        document.documentElement.dataset[EMBARGO_ATTR] = "timeout";
-        return;
-      }
-      const panel = document.querySelector("player-panel");
-      const game = panel?.g;
-      let me = null;
-      try {
-        me = game?.myPlayer?.() ?? null;
-      } catch {
-        me = null;
-      }
-      if (!panel?.eventBus || !me) return;
-      try {
-        if (!me.isAlive?.() || game.inSpawnPhase?.()) return;
-      } catch {
-        return;
-      }
-      // Belt and braces: if the mode is readable here and it is not a team
-      // game, do nothing even though the content script asked.
-      try {
-        const mode = game.config?.()?.gameConfig?.()?.gameMode;
-        if (mode && mode !== "Team") {
-          clearInterval(embargoTimer);
-          embargoTimer = null;
-          document.documentElement.dataset[EMBARGO_ATTR] = "skipped:not-team";
-          return;
-        }
-      } catch {
-        // mode unreadable; trust the caller
-      }
-      try {
-        panel.onStopTradingAllClick({ stopPropagation() {} });
-        document.documentElement.dataset[EMBARGO_ATTR] = "sent";
-      } catch (err) {
-        document.documentElement.dataset[EMBARGO_ATTR] = `failed:${err?.message ?? err}`;
-      }
-      clearInterval(embargoTimer);
-      embargoTimer = null;
-    }, 2000);
-  });
-
-  document.addEventListener("ofr:embargo-reset", () => {
-    if (embargoTimer) clearInterval(embargoTimer);
-    embargoTimer = null;
-    delete document.documentElement.dataset[EMBARGO_ATTR];
-  });
 })();

@@ -10,13 +10,12 @@ const KEYS = [
   "flagSmurfs",
   "showRecap",
   "clanStats",
-  "autoEmbargoTeams",
   "soundAlerts",
   "streamerMode",
   "autoCopyReport",
   "themeSite",
   "chatEnabled",
-  "chatDuringGame",
+  "chatInFfa",
   "chatFilter",
 ];
 // <select> settings, saved by value rather than checked state.
@@ -40,15 +39,85 @@ const DEFAULTS = {
   flagSmurfs: true,
   showRecap: true,
   clanStats: true,
-  autoEmbargoTeams: false,
   soundAlerts: true,
   streamerMode: false,
   autoCopyReport: false,
   themeSite: true,
   chatEnabled: false,
-  chatDuringGame: true,
+  chatInFfa: false,
   chatFilter: true,
 };
+
+// Switches that need more than a tick.
+const EMBEDDED = window.top !== window;
+const GUARDED = {
+  // Chat talks to third parties and is public: it turns on only after an explicit
+  // "I agree" to what that means, and never from the in-page settings overlay - a
+  // page script could frame that and trick a click onto it.
+  chatEnabled(input) {
+    const box = document.getElementById("chat-consent");
+    if (EMBEDDED) return lock(input, "chatEnabled-lock");
+    input.addEventListener("change", async () => {
+      if (!input.checked) {
+        box.hidden = true;
+        await chrome.storage.sync.set({ chatEnabled: false });
+        return;
+      }
+      const { chatConsent } = await chrome.storage.sync.get({ chatConsent: false });
+      if (chatConsent) return chrome.storage.sync.set({ chatEnabled: true });
+      input.checked = false;
+      box.hidden = false;
+    });
+    document.getElementById("chat-agree").addEventListener("click", async () => {
+      await chrome.storage.sync.set({ chatConsent: true, chatEnabled: true });
+      input.checked = true;
+      box.hidden = true;
+    });
+    document.getElementById("chat-cancel").addEventListener("click", () => (box.hidden = true));
+  },
+  chatInFfa(input) {
+    if (EMBEDDED) return lock(input, "chatEnabled-lock");
+    input.addEventListener("change", () => chrome.storage.sync.set({ chatInFfa: input.checked }));
+  },
+  // Writing to the clipboard without a click needs a permission; it is asked for
+  // here, when the feature is switched on, instead of at install.
+  autoCopyReport(input) {
+    if (EMBEDDED) return lock(input, "autoCopy-lock");
+    input.addEventListener("change", async () => {
+      if (input.checked) {
+        let granted = false;
+        try {
+          granted = await chrome.permissions.request({ permissions: ["clipboardWrite"] });
+        } catch {
+          granted = false;
+        }
+        if (!granted) input.checked = false;
+      }
+      chrome.storage.sync.set({ autoCopyReport: input.checked });
+    });
+  },
+};
+function lock(input, noteId) {
+  input.disabled = true;
+  input.closest("label")?.classList.add("off");
+  const note = document.getElementById(noteId);
+  if (note) note.hidden = false;
+}
+
+// Rank lookups wait for the user's agreement (welcome.html).
+async function consentBanner() {
+  const banner = document.getElementById("consent-banner");
+  const { dataConsent } = await chrome.storage.sync.get({ dataConsent: false });
+  banner.hidden = dataConsent === true;
+  document.getElementById("consent-open").addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("src/welcome.html") });
+  });
+  document.getElementById("consent-off").hidden = dataConsent !== true;
+  document.getElementById("consent-off").addEventListener("click", async () => {
+    await chrome.storage.sync.set({ dataConsent: false });
+    location.reload();
+  });
+}
 
 // Everything here reads storage and the network directly instead of going
 // through the service worker: when badges are missing, the worker is one of the
@@ -64,6 +133,10 @@ async function load() {
   for (const key of KEYS) {
     const input = document.getElementById(key);
     input.checked = Boolean(settings[key]);
+    if (GUARDED[key]) {
+      GUARDED[key](input);
+      continue;
+    }
     input.addEventListener("change", () =>
       chrome.storage.sync.set({ [key]: input.checked }),
     );
@@ -141,7 +214,7 @@ async function pingWorker() {
 
 async function probeApi() {
   try {
-    const r = await fetch("https://api.ofstats.io/players/TeNa", {
+    const r = await fetch("https://api.ofstats.io/clans", {
       headers: { accept: "application/json" },
     });
     if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
@@ -167,8 +240,8 @@ async function siteAccess() {
 }
 
 // Works around exactly that: inject into the tab the user is looking at.
-// activeTab grants access for this click, so it runs even when the site is set
-// to "on click".
+// Asks Chrome for access to openfront.io again (the user may have set the site to
+// "on click"), then injects the packaged scripts into the current tab.
 async function injectNow() {
   const button = document.getElementById("inject");
   try {
@@ -361,6 +434,7 @@ async function loadTheme() {
 }
 
 load();
+consentBanner();
 loadTheme();
 status();
 renderWatchlist();

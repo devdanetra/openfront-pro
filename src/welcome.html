@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OpenFront Pro - before you start</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="content.css" />
+    <style>
+      body {
+        margin: 0;
+        padding: 32px 16px 64px;
+        background: var(--ofr-stage-bg);
+        color: var(--ofr-text);
+        font: 15px/1.55 var(--ofr-ui-font);
+      }
+      main { max-width: 680px; margin: 0 auto; }
+      h1 { margin: 0 0 4px; font-size: 24px; }
+      .sub { margin: 0 0 24px; color: var(--ofr-text-dim); }
+      h2 { margin: 28px 0 8px; font-size: 16px; }
+      .card {
+        padding: 16px 18px;
+        border: 1px solid var(--ofr-panel-border);
+        border-radius: 10px;
+        background: var(--ofr-panel-soft);
+      }
+      ul { margin: 8px 0 0; padding-left: 20px; }
+      li { margin: 6px 0; }
+      code { padding: 1px 5px; border-radius: 4px; background: var(--ofr-btn-bg); font-size: 13px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+      button {
+        padding: 10px 18px;
+        border: 1px solid var(--ofr-btn-border);
+        border-radius: 8px;
+        background: var(--ofr-btn-bg);
+        color: inherit;
+        font: 600 14px var(--ofr-ui-font);
+        cursor: pointer;
+      }
+      button:hover { background: var(--ofr-btn-hover); }
+      button.primary { border-color: var(--ofr-accent); color: var(--ofr-accent); }
+      #state { margin-top: 14px; font-weight: 600; }
+      #state[data-on="true"] { color: var(--ofr-good); }
+      #state[data-on="false"] { color: var(--ofr-text-dim); }
+      a { color: var(--ofr-average); }
+      .dim { color: var(--ofr-text-dim); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>OpenFront Pro</h1>
+      <p class="sub">Unofficial companion for openfront.io - not affiliated with OpenFront. One thing to agree to before it starts.</p>
+
+      <div class="card">
+        <h2 style="margin-top: 0">To show ranks, player names are looked up at a third-party service</h2>
+        <ul>
+          <li>The <b>player names shown in your lobby and game - including your own OpenFront username</b> - and clan tags are sent to <code>api.ofstats.io</code>, an independent community statistics service for public OpenFront games, to fetch each player's public statistics.</li>
+          <li>When a game ends, <b>that game's id</b> is sent to OpenFront's own public API (<code>api.openfront.io</code>) to read the public record of the game for the recap.</li>
+          <li>Like any web request, these reveal your IP address to those services. They are run by third parties under their own policies.</li>
+          <li><b>Nothing is sent to the developer of this extension</b> - there is no developer server, no analytics, no ads, no tracking. Settings, a short-lived cache and your session results stay in this browser.</li>
+        </ul>
+        <div class="actions">
+          <button id="agree" class="primary" type="button">I agree - turn rank lookups on</button>
+          <button id="decline" type="button">Not now</button>
+        </div>
+        <div id="state" data-on="false"></div>
+        <p class="dim">Without this, themes and website layouts still work; ranks, the dashboard and the recap stay off. You can change your mind any time from the extension's popup.</p>
+      </div>
+
+      <h2>Chat is separate, and off</h2>
+      <p class="dim">The optional chat sends your messages through public Nostr relays and is public to everyone in the room. It stays off until you switch it on in the popup, where it asks for its own agreement.</p>
+
+      <p class="dim">Full details: <a href="https://github.com/devdanetra/openfront-pro/blob/main/PRIVACY.md" target="_blank" rel="noopener">privacy policy</a> · <a href="https://github.com/devdanetra/openfront-pro" target="_blank" rel="noopener">source code (MIT)</a></p>
+    </main>
+    <script src="themes.js"></script>
+    <script src="welcome.js"></script>
+  </body>
+</html>

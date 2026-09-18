@@ -53,6 +53,7 @@ for (const name of files) {
   local.writeUInt16LE(20, 4); // version needed
   local.writeUInt16LE(0x0800, 6); // UTF-8 names
   local.writeUInt16LE(8, 8); // deflate
+  local.writeUInt16LE(0x0021, 12); // DOS date 1980-01-01: a zero date is invalid for strict unzippers
   local.writeUInt32LE(crc, 14);
   local.writeUInt32LE(packed.length, 18);
   local.writeUInt32LE(data.length, 22);
@@ -65,6 +66,7 @@ for (const name of files) {
   central.writeUInt16LE(20, 6);
   central.writeUInt16LE(0x0800, 8);
   central.writeUInt16LE(8, 10);
+  central.writeUInt16LE(0x0021, 14); // DOS date, as above
   central.writeUInt32LE(crc, 16);
   central.writeUInt32LE(packed.length, 20);
   central.writeUInt32LE(data.length, 24);

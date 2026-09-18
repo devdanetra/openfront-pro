@@ -67,11 +67,21 @@
       a { color: var(--ofr-average); }
       input[type="checkbox"] { accent-color: var(--ofr-accent); }
       label.off { opacity: 0.5; }
+      .consent { margin: 6px 0 8px; padding: 8px; border: 1px solid var(--ofr-accent); border-radius: var(--ofr-panel-radius); background: var(--ofr-panel-soft); font-size: 11px; }
+      .consent ul { margin: 6px 0; padding-left: 16px; }
+      .consent li { margin: 4px 0; }
+      .consent .row { display: flex; gap: 6px; }
+      .consent .row button { margin-top: 8px; }
+      #consent-banner { margin: 0 0 10px; }
     </style>
   </head>
   <body>
     <h1>OpenFront Pro</h1>
     <div class="disclaimer">Unofficial — not affiliated with OpenFront.</div>
+    <div id="consent-banner" class="consent" hidden>
+      <b>Rank lookups are off.</b> To show ranks, player names from your lobby are looked up at api.ofstats.io (a third-party service). Nothing is sent until you agree.
+      <div class="row"><button id="consent-open" type="button">Read and turn on</button></div>
+    </div>
     <h2>Theme <small id="theme-blurb"></small></h2>
     <select id="theme"></select>
     <div id="theme-preview">
@@ -119,6 +129,7 @@
     <label><input type="checkbox" id="soundAlerts" /> Sound when a watched player joins</label>
     <label><input type="checkbox" id="streamerMode" /> Streamer mode (hide my rank, blur my name)</label>
     <label><input type="checkbox" id="autoCopyReport" /> Copy scouting report at 10s on the countdown</label>
+    <p class="warn-note" id="autoCopy-lock" hidden>Needs a permission that can only be granted from the toolbar popup.</p>
     <h2>Clicking a badge opens</h2>
     <select id="profileLink">
       <option value="dashboard">In-page stats (Pro dashboard)</option>
@@ -126,18 +137,26 @@
     </select>
     <h2>Chat <small>beta - off by default</small></h2>
     <label><input type="checkbox" id="chatEnabled" /> Chat with other OpenFront Pro players in your lobby / game</label>
-    <p class="warn-note">No server of ours: messages travel through public Nostr relays (primal.net, nos.lol, nostr.mom, snort.social). Those relays see your IP address and what you send; other players see only your name and text. Names are not verified. Nothing is stored. You can mute anyone.</p>
+    <p class="warn-note" id="chatEnabled-lock" hidden>Chat switches can only be changed from the toolbar popup (click the extension's icon).</p>
+    <div id="chat-consent" class="consent" hidden>
+      <b>Before chat turns on</b>
+      <ul>
+        <li>Your messages, your OpenFront name and clan tag (or "Player" in streamer mode) and a throw-away key for that game are sent to four public Nostr relays: relay.primal.net, nos.lol, nostr.mom, relay.snort.social. They are third parties and see your IP address.</li>
+        <li>The chat is <b>public</b>: anyone connected to those relays can read the room, and nobody can promise a relay keeps nothing. Your name is announced to the room while chat is on, even if you do not type.</li>
+        <li>Names are not verified. Be decent; do not share personal information. You can mute anyone, and report abuse from the chat panel.</li>
+      </ul>
+      <a href="https://github.com/devdanetra/openfront-pro/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a>
+      <div class="row"><button id="chat-agree" type="button">I agree - turn chat on</button><button id="chat-cancel" type="button">Cancel</button></div>
+    </div>
     <label><input type="checkbox" id="chatFilter" /> Mask slurs and the like</label>
-    <label><input type="checkbox" id="chatDuringGame" /> Keep the chat open during the game</label>
-    <p class="warn-note">On by default. Untick to pause it while you are alive in a running game (it stays open in the lobby and once you are out). Everyone with OpenFront Pro in the game shares one room - it is not a private channel, so keep it to talk, not to team up in free-for-all.</p>
-    <h2>Automation <small>use at your own risk</small></h2>
-    <label class="warn"><input type="checkbox" id="autoEmbargoTeams" /> Auto "stop trading with all" when a team game starts</label>
-    <p class="warn-note">This sends a game action for you. It is off by default because automating actions may be against OpenFront's rules; enabling it is your call.</p>
+    <label class="warn"><input type="checkbox" id="chatInFfa" /> Also while I am alive in a free-for-all</label>
+    <p class="warn-note">Chat is always open in the lobby, after the game and during team games. In a free-for-all it pauses while you are alive: OpenFront's terms forbid outside channels for coordinating there. Turning this on is your call and your risk.</p>
     <h2>Watchlist <small>Shift+click a badge to add</small></h2>
     <ul id="watchlist"></ul>
     <div id="status">Checking…</div>
     <button id="inject">Enable on openfront.io</button>
     <button id="clear">Clear cached ranks</button>
+    <button id="consent-off" hidden>Turn rank lookups off</button>
     <p>
       Ranks come from public-game stats on
       <a href="https://ofstats.io/" target="_blank">ofstats.io</a>, matched by

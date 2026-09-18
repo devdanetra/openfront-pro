@@ -1,5 +1,5 @@
 // Rebuilds src/vendor/nostr-crypto.js: BIP-340 Schnorr (secp256k1) + SHA-256 from
-// @noble/curves and @noble/hashes (MIT, audited, no dependencies), bundled into
+// @noble/curves and @noble/hashes (MIT, audited, no dependencies), bundled (NOT minified, so it can be read and diffed) into
 // one classic script that sets globalThis.OFR_NOSTR_CRYPTO. Nothing else is
 // vendored, and nothing is fetched at run time.
 //
@@ -29,7 +29,9 @@ globalThis.OFR_NOSTR_CRYPTO = { schnorr, sha256, bytesToHex, hexToBytes, utf8ToB
 );
 execSync("npm install --no-audit --no-fund --ignore-scripts @noble/curves@1.9.7 @noble/hashes@1.8.0 esbuild-wasm@0.25.10", { cwd: WORK, stdio: "inherit" });
 const tmp = path.join(WORK, "nostr-crypto.js");
-execSync(`node node_modules/esbuild-wasm/bin/esbuild entry.js --bundle --format=iife --minify --legal-comments=inline --target=chrome110 --outfile=${JSON.stringify(tmp)}`, { cwd: WORK, stdio: "inherit" });
+execSync(`node node_modules/esbuild-wasm/bin/esbuild entry.js --bundle --format=iife --legal-comments=inline --target=chrome110 --outfile=${JSON.stringify(tmp)}`, { cwd: WORK, stdio: "inherit" });
+fs.writeFileSync(tmp, `/* OpenFront Pro vendor bundle: @noble/curves 1.9.7 + @noble/hashes 1.8.0 (MIT, (c) Paul Miller). Bundled, NOT minified. Rebuild: node tools/build-vendor.mjs */
+${fs.readFileSync(tmp, "utf8")}`);
 
 delete globalThis.OFR_NOSTR_CRYPTO;
 await import(`${pathToFileURL(tmp).href}?t=${Date.now()}`);

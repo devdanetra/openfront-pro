@@ -37,12 +37,15 @@ const DEFAULT_SETTINGS = {
   themeSite: true, // recolour OpenFront's own pages with the theme
   profileLink: "dashboard", // what clicking a badge opens: dashboard | none (a stored "ofstats" from before 5.4 acts as dashboard)
   clanStats: true, // clan section on the dashboard, clan chips in the lobby
-  autoEmbargoTeams: false, // send "stop trading with all" at the start of team games
   streamerMode: false, // hide your own rank and blur your name
   soundAlerts: true, // beep when a watched player joins
   autoCopyReport: false, // copy the scouting report at 10s on the countdown
-  chatEnabled: false, // opt-in: talks to third-party relays
-  chatDuringGame: true, // false = pause the chat while you are alive in a running game
+  // Nothing is looked up anywhere until the user has read what is sent and agreed
+  // (src/welcome.html, opened on install). Themes and layouts work without it.
+  dataConsent: false,
+  chatEnabled: false, // opt-in: talks to third-party relays...
+  chatConsent: false, // ...and only after agreeing to the chat's own disclosure
+  chatInFfa: false, // chat while alive in a free-for-all (OpenFront's terms forbid coordinating there)
   chatFilter: true, // mask slurs and the like in incoming messages
   layout: "cards", // cards | compact | panel
   uiSize: "medium", // small | medium | large | xlarge
@@ -367,7 +370,22 @@ async function injectExisting() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(injectExisting);
+chrome.runtime.onInstalled.addListener(async (details) => {
+  try {
+    if (details.reason === "install") {
+      // First run: say what is sent where, and ask, before anything is sent.
+      await chrome.tabs.create({ url: chrome.runtime.getURL("src/welcome.html") });
+    } else if (details.reason === "update") {
+      // People already using the lookups before the consent screen existed keep
+      // them; the screen is there for new installs. (Chat consent is never assumed.)
+      const stored = await chrome.storage.sync.get(["dataConsent"]);
+      if (stored.dataConsent === undefined) await chrome.storage.sync.set({ dataConsent: true });
+    }
+  } catch {
+    // storage or tabs unavailable; the popup offers the same screen
+  }
+  injectExisting();
+});
 chrome.runtime.onStartup.addListener(injectExisting);
 injectExisting();
 
@@ -555,13 +573,24 @@ const CHAT_PER_MINUTE = 12;
 const CHAT_PRESENCE_MS = 45000;
 const CHAT_INBOUND_PER_SEC = 25; // across the room, before any signature is checked
 
-async function chatSecretKey() {
-  const stored = (await chrome.storage.local.get(CHAT_KEY))[CHAT_KEY];
-  if (typeof stored === "string" && /^[0-9a-f]{64}$/.test(stored)) return stored;
-  const fresh = OFR_NOSTR.newSecretKey();
-  await chrome.storage.local.set({ [CHAT_KEY]: fresh });
-  return fresh;
+// A fresh signing key per room, kept in memory-only session storage: games
+// cannot be linked to each other through the key, and no key sits on disk.
+// (It survives a worker restart within the browser session, so you stay the
+// same sender for the length of a game.)
+async function chatSecretKey(room) {
+  const slot = `${CHAT_KEY}:${room}`;
+  try {
+    const stored = (await chrome.storage.session.get(slot))[slot];
+    if (typeof stored === "string" && /^[0-9a-f]{64}$/.test(stored)) return stored;
+    const fresh = OFR_NOSTR.newSecretKey();
+    await chrome.storage.session.set({ [slot]: fresh });
+    return fresh;
+  } catch {
+    return OFR_NOSTR.newSecretKey(); // no session storage: a key for this connection only
+  }
 }
+// the long-lived key older versions kept on disk
+chrome.storage.local.remove(CHAT_KEY).catch(() => {});
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "ofr-chat") return;
@@ -605,8 +634,8 @@ chrome.runtime.onConnect.addListener((port) => {
       if (!/^[A-Za-z0-9]{4,16}$/.test(gameId)) return;
       name = String(msg.name ?? "").slice(0, OFR_NOSTR.MAX_NAME);
       const settings = await getSettings();
-      if (!settings.chatEnabled) return; // the switch is checked here too, not only in the page
-      const secretKey = await chatSecretKey();
+      if (!settings.chatEnabled || !settings.chatConsent) return; // checked here too, not only in the page
+      const secretKey = await chatSecretKey(OFR_NOSTR.roomOf(gameId));
       if (seq !== joinSeq) return; // left, or joined another room, while we were reading storage
       post({ t: "me", pubkey: OFR_NOSTR.publicKeyOf(secretKey) });
       let announced = false;
@@ -670,7 +699,7 @@ chrome.runtime.onConnect.addListener((port) => {
 // "is it even running?" without anyone reading a console log.
 let lastReport = null;
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+function onMessage(msg, _sender, sendResponse) {
   if (msg?.type === "report") {
     lastReport = { ...msg.detail, url: msg.url, at: Date.now() };
     return false;
@@ -694,15 +723,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // player joining your lobby still reaches you.
     chrome.notifications.create({
       type: "basic",
-      iconUrl: "icons/icon128.png",
+      iconUrl: chrome.runtime.getURL("icons/icon128.png"),
       title: String(msg.title ?? "OpenFront Pro").slice(0, 80),
       message: String(msg.message ?? "").slice(0, 200),
     });
     return false;
   }
+  if (msg?.type === "openWelcome") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("src/welcome.html") });
+    return false;
+  }
   if (msg?.type === "getStatus") {
-    fetchStats("TeNa")
-      .then((probe) => ({ ok: probe?.found === true, probe: probe?.reason }))
+    // Reachability only: a neutral endpoint, nobody's name, and not at all
+    // before the user has agreed to lookups.
+    getSettings()
+      .then((st) => (st.dataConsent && st.enabled ? fetch(`${OFSTATS_API}/clans`, { headers: { accept: "application/json" } }) : null))
+      .then((res) => (res ? { ok: res.ok, probe: res.ok ? null : `HTTP ${res.status}` } : { ok: null, probe: "lookups are off" }))
       .catch((err) => ({ ok: false, probe: String(err) }))
       .then((api) =>
         sendResponse({
@@ -738,4 +774,34 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   return false;
+}
+
+// Lookups leave the browser (ofstats, OpenFront's game API), so they wait for
+// the user's agreement (src/welcome.html). Everything else is local.
+const LOOKUP_MESSAGES = new Set(["lookup", "clan", "clanLeaderboard", "gameRecord"]);
+let dataConsent = null; // null until storage has been read
+const consentReady = chrome.storage.sync
+  .get({ dataConsent: false })
+  .then((r) => (dataConsent = r.dataConsent === true))
+  .catch(() => (dataConsent = false));
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "sync" && changes.dataConsent) dataConsent = changes.dataConsent.newValue === true;
+});
+function refuseLookup(msg) {
+  if (msg.type !== "lookup") return { error: "consent" };
+  const names = Array.isArray(msg.usernames) ? msg.usernames : [];
+  return Object.fromEntries(names.map((n) => [n, { found: false, reason: "consent" }]));
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!LOOKUP_MESSAGES.has(msg?.type) || dataConsent === true) return onMessage(msg, sender, sendResponse);
+  if (dataConsent === false) {
+    sendResponse(refuseLookup(msg));
+    return false;
+  }
+  consentReady.then(() => {
+    if (dataConsent) onMessage(msg, sender, sendResponse);
+    else sendResponse(refuseLookup(msg));
+  });
+  return true;
 });

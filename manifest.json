@@ -1,11 +1,9 @@
 {
   "manifest_version": 3,
   "name": "OpenFront Pro",
-  "version": "5.6.1",
+  "version": "5.7.0",
   "description": "Unofficial. Player rankings, form, map preview and scouting for OpenFront lobbies. Not affiliated with OpenFront.",
   "permissions": [
-    "activeTab",
-    "clipboardWrite",
     "notifications",
     "scripting",
     "storage"
@@ -13,8 +11,7 @@
   "host_permissions": [
     "https://openfront.io/*",
     "https://*.openfront.io/*",
-    "https://api.ofstats.io/*",
-    "https://api.openfront.io/*"
+    "https://api.ofstats.io/*"
   ],
   "background": {
     "service_worker": "src/background.js"
@@ -73,5 +70,8 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "short_name": "OpenFront Pro"
+  "optional_permissions": [
+    "clipboardWrite"
+  ],
+  "homepage_url": "https://github.com/devdanetra/openfront-pro"
 }

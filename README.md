@@ -19,6 +19,22 @@ the hover panel during a game.
 Click the toolbar icon to toggle what the badge shows (global position, tier,
 RR) or to clear the rank cache.
 
+## First run, consent and permissions
+
+On install a page opens that says, in plain words, what leaves the browser:
+player names from your lobby (yours included) go to `api.ofstats.io`, a
+third-party community statistics service, and a finished game's id goes to
+OpenFront's public API. **Nothing is looked up until you press "I agree"**; the
+worker refuses lookup messages until then (`dataConsent`), and the popup can
+switch it off again. Themes and layouts work without it. Chat has its own,
+separate agreement. See [PRIVACY.md](PRIVACY.md).
+
+Permissions are the minimum: `storage`, `scripting` (to inject the packaged
+scripts into tabs already open at install / update), `notifications` (watchlist
+alert), and host access to openfront.io and `api.ofstats.io`. `clipboardWrite`
+is *optional* and only requested if you tick "copy the scouting report by
+itself". The extension reads the game's pages and never sends a game action.
+
 ## Where the ranking comes from
 
 [ofstats.io](https://ofstats.io) aggregates every public OpenFront game by
@@ -314,7 +330,7 @@ What the record can and cannot say (checked against OpenFront's source,
 ## Chat (beta, off by default)
 
 A chat between players who have this extension, one room per game - in the
-lobby, during the game and after it. There is **no server of
+lobby, after the game, and during team games. There is **no server of
 ours**: messages are [Nostr](https://github.com/nostr-protocol/nips) *ephemeral*
 events (kind 20787: relays pass them on to whoever is subscribed and store
 nothing) on four public relays - `relay.primal.net`, `nos.lol`, `nostr.mom`,
@@ -330,21 +346,30 @@ What that means, plainly:
 - **Names are not verified.** Anyone can type any name, and nothing can prove a
   sender is the player of that name. Each name therefore shows a 4-character
   fingerprint of the sender's key, and no rank badge is ever attached.
-- Messages are signed by a key made in your browser on first use
-  (`chrome.storage.local`, never synced, never shown). Every incoming event is
+- Messages are signed by a throw-away key made in your browser **per game**
+  (`chrome.storage.session`: memory only, gone when the browser closes), so
+  games cannot be linked through it and no key sits on disk. Every incoming event is
   checked - shape, size, room, clock (2 min), id, BIP-340 signature - before it
   is shown; a relay cannot forge, edit or rename a message.
 - Text only: no markup, links are not clickable, control / zero-width / bidi
   characters and zalgo stacks are stripped. Slurs and the like are masked
-  (switchable). `x` mutes a sender for good; six messages in ten seconds mutes
+  (switchable). `x` mutes a sender for that game; six messages in ten seconds mutes
   a sender for a minute; you can send one message per 1.2 s, twelve a minute.
   There is nobody to report to - no server - so muting is the tool.
-- **Runs during the game too** (since 5.6.1), as well as in the lobby and after
-  the game. Everyone with the extension in that game shares the one room, so it
-  is not a private channel. "Keep the chat open during the game" can be
-  unticked: then it is paused - nothing shown, nothing sent - while you are
-  alive in a running game, and opens again when you are eliminated or the game
-  ends. Typing in the box does not trigger the game's hotkeys.
+- **During play:** open in team games; **paused while you are alive in a
+  free-for-all** (nothing shown, nothing sent) and open again once you are out
+  or the game ends. OpenFront's terms forbid outside channels for coordinating
+  in free-for-all. "Also while I am alive in a free-for-all" is a separate
+  switch, off by default, with that warning on it. Typing in the box does not
+  trigger the game's hotkeys.
+- It turns on only after an explicit **"I agree"** in the toolbar popup that
+  lists what is sent and to whom. The in-page settings overlay cannot switch it
+  on: a page script could frame that overlay and steal a click.
+- The chat is **public**: anyone connected to those relays can read a room, not
+  only users of this extension. While it is on, your name is announced to the
+  room about every 45 seconds even if you do not type.
+- **Report** in the panel opens the project's issue tracker - there is no
+  server, so that and muting are the tools.
 - The page itself is not trusted: OpenFront's pages carry third-party ad
   scripts, which share the DOM with any content-script UI. The panel lives in a
   **closed shadow root** (page scripts cannot read messages or the input box) and
@@ -352,7 +377,7 @@ What that means, plainly:
 - Streamer mode sends "Player" instead of your name.
 
 Crypto is `@noble/curves` + `@noble/hashes` (MIT, audited), vendored as one
-file by `node tools/build-vendor.mjs`, which refuses to install a bundle that
+unminified file by `node tools/build-vendor.mjs`, which refuses to install a bundle that
 fails BIP-340's test vector. `node tools/test-chat.mjs [--live]` covers the
 event rules and text hygiene, and with `--live` two clients through the real
 relays.
@@ -421,19 +446,6 @@ exists while open and only for signed-in users, so the entry is (re)added
 whenever the menu is on screen without it; it copies a neighbouring item's
 classes to look native, and stays above a destructive last item (log out).
 
-## Automation (off by default)
-
-**Auto "stop trading with all"** sends the game's own embargo-all action when a
-team game starts. The game's button for it lives on `<player-panel>`, whose
-handler emits an event on the game's bus; the event class is bundled out of
-reach, but the handler is a plain method on a Lit element, so `page-probe.js`
-(page world) calls it once the player has spawned. The content script decides
-*whether* — only for a lobby it saw as Team, once per game — and asks via a DOM
-event, the only channel across worlds.
-
-This automates a game action on your behalf. It is off by default because that
-may be against OpenFront's rules, and turning it on is your decision.
-
 ## Getting it to run
 
 Chrome does not run declared content scripts when the extension's site access is
@@ -492,6 +504,7 @@ src/scoring.js      percentile scoring, shared by badges, dashboard and tools
 src/charts.js       SVG/DOM chart kit, themed by tokens
 src/dashboard.js    Pro dashboard (with Trends graphs) and home card
 src/recap.js        game recap: analysis, panel, share image
+src/welcome.html/js first-run disclosure and consent
 src/chat.js         chat panel (closed shadow root), muting, filter, presence
 src/nostr.js        minimal Nostr client: ephemeral events, verification, relay pool
 src/vendor/         nostr-crypto.js - vendored @noble Schnorr + SHA-256
@@ -512,6 +525,8 @@ tools/test-recap.mjs       recap analysis over real game records, in node
 tools/test-chat.mjs        chat: event rules, text hygiene, --live relay round trip
 tools/probe-relays.mjs     which public relays deliver ephemeral events
 tools/build-vendor.mjs     rebuilds src/vendor/nostr-crypto.js (checked against BIP-340)
+tools/make-store-images.py Chrome Web Store screenshots and tiles from .shots/
+store/                     listing text, privacy-tab answers, submission checklist
 tools/cdp-*.mjs     dev: drive a debug Chrome (screenshots, live checks)
 test/               fixture page reproducing the lobby markup
 ```
@@ -519,3 +534,9 @@ test/               fixture page reproducing the lobby markup
 To run the fixture: `python -m http.server 8931` from this folder, then open
 `http://localhost:8931/test/index.html`. It stubs the `chrome` API; live calls
 from it fail with CORS by design.
+
+## License
+
+MIT - see [LICENSE](LICENSE). Bundled third-party code and the services the
+extension talks to are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Unofficial: not affiliated with, endorsed by or sponsored by OpenFront.
