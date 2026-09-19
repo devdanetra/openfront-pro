@@ -17,22 +17,22 @@ Everything to paste is in this folder. The steps that only you can do are marked
 
 ## 1. Upload
 
-*Add new item* -> upload **`openfront-pro-5.9.0.zip`** (built by
+*Add new item* -> upload **`openfront-pro-5.10.0.zip`** (built by
 `node tools/pack.mjs`; manifest at the root, 27 files including `src/team.js`
 and `src/timelapse.js`, no tools/tests). Do **not** upload an older zip: 5.6.x
 still asks for permissions that were removed for the store, and the privacy
-texts in this folder describe 5.9.0.
+texts in this folder describe 5.10.0.
 
 ## 2. Store listing tab -> `LISTING.md`
 
 - Description, category, language: paste from `LISTING.md`.
 - Store icon: `store/store-icon-128.png` (96px artwork + 16px padding).
 - Screenshots: `screenshot-1.png` ... `screenshot-5.png` (1280x800).
-  **Replace `screenshot-1.png` with a capture of a real lobby** (1280x800, your
-  own browser): the current one is a test stand-in and looks it. Screenshots 2
-  and 4 must show the current visual dashboard and home card (the listing
-  describes them): `node tools/cdp-themes.mjs`, then
-  `python tools/make-store-images.py`.
+  They are composed by `python tools/make-store-images.py` from the curated
+  captures in `.shots/final/` (lobby badges, dashboard, recap tabs, the nine
+  themes, overlay + clan hub + tournaments). `screenshot-1.png`'s lobby is the
+  local fixture dressed as a lobby with made-up players; a capture of a real
+  lobby from your own browser would still be the better first image.
 - Small promo tile: `promo-small-440x280.png`.
 - Homepage URL: `https://github.com/devdanetra/openfront-pro`
 - Support URL: `https://github.com/devdanetra/openfront-pro/issues`

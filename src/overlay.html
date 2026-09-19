@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en" data-bg="transparent" data-pos="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenFront Pro overlay</title>
+    <link rel="stylesheet" href="content.css" />
+    <style>
+      /* Stream overlay (OBS). Every colour is a theme token from content.css; the
+         one exception is the chroma-key green, which is OBS' "Green" key colour
+         and not part of any theme. */
+      :root {
+        --ofr-ov-chroma: #00ff00;
+        --ofr-ov-width: 420px;
+        --ofr-ov-recap-width: 600px;
+        --ofr-ov-gap: 14px;
+        --ofr-ov-margin: 28px;
+        --ofr-ov-scale: 1;
+      }
+      html, body { height: 100%; margin: 0; }
+      [hidden] { display: none !important; } /* .ofr-btn / .ofr-state set a display of their own */
+      body {
+        overflow: hidden;
+        background: transparent;
+        color: var(--ofr-text);
+        font: var(--ofr-fw-regular, 400) var(--ofr-fs-md, 13px)/var(--ofr-lh-snug, 1.3) var(--ofr-ui-font);
+      }
+      html[data-bg="green"] body { background: var(--ofr-ov-chroma); }
+      html[data-bg="dark"] body { background: var(--ofr-stage-bg); }
+
+      /* ---- where the cards sit ---------------------------------------------- */
+      #stage { position: fixed; z-index: 1; }
+      #cards { display: flex; flex-direction: column; gap: var(--ofr-ov-gap); zoom: var(--ofr-ov-scale); }
+      html[data-pos^="t"] #stage { top: var(--ofr-ov-margin); }
+      html[data-pos^="b"] #stage { bottom: var(--ofr-ov-margin); }
+      html[data-pos$="l"] #stage { left: var(--ofr-ov-margin); }
+      html[data-pos$="r"] #stage { right: var(--ofr-ov-margin); }
+      html[data-pos$="l"] #cards { align-items: flex-start; }
+      html[data-pos$="r"] #cards { align-items: flex-end; }
+      /* the first card sits in the corner, the rest stack away from it */
+      html[data-pos^="b"] #cards { flex-direction: column-reverse; }
+
+      /* ---- card --------------------------------------------------------------- */
+      .ov-card {
+        position: relative;
+        box-sizing: border-box;
+        width: var(--ofr-ov-width);
+        padding: 14px 16px 14px 20px;
+        overflow: hidden;
+        border: 1px solid var(--ofr-panel-border);
+        border-radius: var(--ofr-radius-float, 10px);
+        background: color-mix(in srgb, var(--ofr-float-bg, var(--ofr-panel-bg)) 93%, transparent);
+        box-shadow: var(--ofr-shadow-3, 0 12px 32px rgba(0, 0, 0, 0.5));
+        animation: ofr-rise var(--ofr-dur-3, 240ms) var(--ofr-ease-out, ease-out);
+      }
+      /* tone is an edge: band for the rank card, state for the live card */
+      .ov-card::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 4px; background: var(--ov-edge, transparent); }
+      html[data-bg="transparent"] .ov-card { text-shadow: 0 1px 2px color-mix(in srgb, var(--ofr-stage-bg) 55%, transparent); }
+      /* a chroma key eats soft edges: solid cards, no shadow, on green */
+      html[data-bg="green"] .ov-card { background: var(--ofr-float-bg, var(--ofr-panel-bg)); box-shadow: none; }
+      .ov-label {
+        color: var(--ofr-text-dim);
+        font: var(--ofr-fw-bold, 700) var(--ofr-fs-label, 10.5px)/1 var(--ofr-ui-font);
+        letter-spacing: var(--ofr-tracking-label, 0.07em);
+        text-transform: uppercase;
+      }
+      [data-band="elite"] { --ov-band: var(--ofr-elite); }
+      [data-band="strong"] { --ov-band: var(--ofr-strong); }
+      [data-band="good"] { --ov-band: var(--ofr-good); }
+      [data-band="average"] { --ov-band: var(--ofr-average); }
+      [data-band="low"] { --ov-band: var(--ofr-low); }
+
+      /* ---- rank card ---------------------------------------------------------- */
+      .ov-rank { display: flex; align-items: center; gap: 18px; --ov-edge: var(--ov-band, var(--ofr-accent)); }
+      .ov-gauge { position: relative; flex: none; width: 108px; height: 108px; }
+      .ov-gauge svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
+      .ov-gauge-track { fill: none; stroke: var(--ofr-track); stroke-width: 10; }
+      .ov-gauge-arc { fill: none; stroke: var(--ov-band, var(--ofr-accent)); stroke-width: 10; stroke-linecap: round; transition: stroke-dasharray var(--ofr-dur-3, 240ms) var(--ofr-ease-out, ease-out); }
+      .ov-gauge-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .ov-gauge-top { color: var(--ofr-text-dim); font: var(--ofr-fw-heavy, 800) 12px/1 var(--ofr-ui-font); letter-spacing: 0.12em; }
+      .ov-gauge-val { margin-top: 3px; color: var(--ov-band, var(--ofr-text)); font: var(--ofr-fw-heavy, 800) 32px/1 var(--ofr-ui-font); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+      .ov-gauge-val small { font-size: 18px; font-weight: var(--ofr-fw-bold, 700); }
+      .ov-gauge[data-kind="unranked"] .ov-gauge-val { color: var(--ofr-text-dim); font-size: 20px; }
+      /* the day's rank drift, inside the gauge: an arrow and how many points */
+      .ov-gauge-drift { display: inline-flex; align-items: center; gap: 1px; margin-top: 4px; color: var(--ofr-text-dim); font: var(--ofr-fw-heavy, 800) 12px/1 var(--ofr-ui-font); font-variant-numeric: tabular-nums; }
+      .ov-gauge-drift svg { width: 12px; height: 12px; fill: currentColor; }
+      .ov-gauge-drift[data-dir="up"] { color: var(--ofr-good); }
+      .ov-gauge-drift[data-dir="down"] { color: var(--ofr-elite); }
+      .ov-gauge-drift[data-dir="up"] svg { transform: rotate(-90deg); }
+      .ov-gauge-drift[data-dir="down"] svg { transform: rotate(90deg); }
+      .ov-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1; }
+      .ov-name { overflow: hidden; color: var(--ofr-text); font: var(--ofr-fw-heavy, 800) 21px/1.1 var(--ofr-ui-font); text-overflow: ellipsis; white-space: nowrap; }
+      .ov-row { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+      .ov-ico { flex: none; width: 16px; height: 16px; fill: var(--ofr-text-dim); }
+      .ov-flames { display: flex; align-items: flex-end; gap: 3px; }
+      .ov-flame { display: block; width: 22px; height: 26px; }
+      .ov-flame .o { fill: var(--ofr-elite); }
+      .ov-flame .i { fill: var(--ofr-strong); }
+      .ov-flame[data-on="false"] .o { fill: var(--ofr-track); }
+      .ov-flame[data-on="false"] .i { fill: none; }
+      .ov-more { color: var(--ofr-strong); font: var(--ofr-fw-heavy, 800) 16px/1 var(--ofr-ui-font); font-variant-numeric: tabular-nums; }
+      .ov-pips { display: flex; gap: 4px; align-items: center; }
+      .ov-pip { box-sizing: border-box; flex: none; width: 14px; height: 14px; border: 2px solid var(--ofr-loss, var(--ofr-text-dim)); border-radius: 50%; }
+      .ov-pip[data-won="true"] { border-color: var(--ofr-good); background: var(--ofr-good); }
+      .ov-score { margin-left: 4px; color: var(--ofr-text); font: var(--ofr-fw-heavy, 800) 18px/1 var(--ofr-ui-font); font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .ov-score small { color: var(--ofr-text-dim); font-size: 13px; font-weight: var(--ofr-fw-bold, 700); }
+
+      /* ---- live game card ----------------------------------------------------- */
+      .ov-live { --ov-edge: var(--ov-state, var(--ofr-good)); }
+      .ov-live[data-phase="playing"] { --ov-state: var(--ofr-good); }
+      .ov-live[data-phase="spawn"] { --ov-state: var(--ofr-average); }
+      .ov-live[data-phase="out"] { --ov-state: var(--ofr-elite); }
+      .ov-live[data-phase="ended"] { --ov-state: var(--ofr-accent); }
+      .ov-live[data-phase="watching"] { --ov-state: var(--ofr-text-dim); }
+      .ov-head { display: flex; align-items: center; gap: 10px; }
+      .ov-state { display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--ov-state); font: var(--ofr-fw-heavy, 800) 12px/1 var(--ofr-ui-font); letter-spacing: 0.08em; text-transform: uppercase; }
+      .ov-state::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 25%, transparent); }
+      .ov-live[data-phase="playing"] .ov-state::before, .ov-live[data-phase="spawn"] .ov-state::before { animation: ofr-pulse 1.6s ease-in-out infinite; }
+      .ov-where { flex: 1; min-width: 0; overflow: hidden; color: var(--ofr-text-dim); font: var(--ofr-fw-semibold, 600) 13px/1.2 var(--ofr-ui-font); text-overflow: ellipsis; white-space: nowrap; }
+      .ov-clock { flex: none; color: var(--ofr-text); font: var(--ofr-fw-heavy, 800) 26px/1 var(--ofr-mono-font); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+      .ov-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+      .ov-tile { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 9px 10px 8px; border-radius: var(--ofr-radius-inner, 6px); background: var(--ofr-panel-soft); }
+      .ov-tile-lab { display: flex; align-items: center; gap: 5px; }
+      .ov-tile-lab svg { flex: none; width: 14px; height: 14px; fill: var(--ofr-text-dim); }
+      .ov-val { overflow: hidden; color: var(--ofr-text); font: var(--ofr-fw-heavy, 800) 26px/1 var(--ofr-ui-font); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; white-space: nowrap; }
+      .ov-val small { margin-left: 2px; color: var(--ofr-text-dim); font-size: 14px; font-weight: var(--ofr-fw-bold, 700); letter-spacing: 0; }
+      .ov-val[data-dim="true"] { color: var(--ofr-text-dim); }
+      .ov-bars { display: grid; gap: 5px; margin-top: 12px; }
+      .ov-bar-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 52px; align-items: center; gap: 8px; color: var(--ofr-text-dim); font: var(--ofr-fw-bold, 700) 12px/1 var(--ofr-ui-font); font-variant-numeric: tabular-nums; }
+      .ov-bar-row > :last-child { text-align: right; }
+      .ov-bar { height: 10px; overflow: hidden; border-radius: var(--ofr-radius-pill, 999px); background: var(--ofr-track); }
+      .ov-bar > span { display: block; height: 100%; border-radius: inherit; background: color-mix(in srgb, var(--ofr-text-dim) 75%, transparent); transition: width var(--ofr-dur-3, 240ms) var(--ofr-ease-out, ease-out); }
+      .ov-bar-row[data-me="true"] { color: var(--ofr-accent-ink, var(--ofr-accent)); }
+      .ov-bar-row[data-me="true"] .ov-bar > span { background: var(--ofr-accent); }
+
+      /* ---- recap card --------------------------------------------------------- */
+      .ov-recap { width: var(--ofr-ov-recap-width); padding: 0; }
+      .ov-recap::before { display: none; }
+      .ov-recap img { display: block; width: 100%; height: auto; }
+      .ov-timer { position: absolute; right: 0; bottom: 0; left: 0; height: 4px; background: var(--ofr-track); }
+      .ov-timer > span { display: block; height: 100%; background: var(--ofr-accent); transition: width 1s linear; }
+
+      /* ---- settings panel (?edit=1; never in the OBS address) -------------------- */
+      #edit {
+        position: fixed; z-index: 3; box-sizing: border-box; width: 340px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
+        overflow: auto; padding: 14px 16px 16px; animation: ofr-rise var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out);
+      }
+      #edit[hidden] { display: none; }
+      html[data-pos$="r"] #edit { left: 12px; }
+      html[data-pos$="l"] #edit { right: 12px; }
+      html[data-pos^="t"] #edit { bottom: 12px; }
+      html[data-pos^="b"] #edit { top: 12px; }
+      .ed-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+      .ed-head .ofr-eyebrow { margin: 0; color: var(--ofr-text); font-size: var(--ofr-fs-sm, 12px); }
+      .ed-how { margin: 0 0 12px; color: var(--ofr-text); font-size: var(--ofr-fs-sm, 12px); line-height: var(--ofr-lh-normal, 1.45); }
+      .ed-how b { color: var(--ofr-accent-ink, var(--ofr-accent)); }
+      .ed-group { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 8px; margin: 0 0 10px; }
+      .ed-group > .ov-label { color: var(--ofr-text-dim); }
+      .ed-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+      .ed-chips .ofr-chip[aria-pressed="false"] { color: var(--ofr-text-dim); }
+      .ed-inline { display: flex; align-items: center; gap: 8px; color: var(--ofr-text-dim); font-size: var(--ofr-fs-xs, 11px); }
+      .ed-inline input[type="range"] { flex: 1; min-width: 0; accent-color: var(--ofr-accent); }
+      .ed-inline .ofr-input { width: 64px; }
+      .ed-inline output { min-width: 38px; color: var(--ofr-text); font-weight: var(--ofr-fw-bold, 700); font-variant-numeric: tabular-nums; }
+      .ed-obs { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ofr-panel-border); }
+      .ed-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .ed-note { margin: 8px 0 0; color: var(--ofr-text-dim); font-size: var(--ofr-fs-xs, 11px); line-height: var(--ofr-lh-normal, 1.45); }
+      .ed-note[data-tone="warn"] { color: var(--ofr-text); }
+      .ed-note[data-tone="warn"]::before { content: "!"; display: inline-grid; place-items: center; width: 14px; height: 14px; margin-right: 6px; border-radius: 50%; background: var(--ofr-strong); color: var(--ofr-on-band, #0b0d12); font: 800 10px/1 var(--ofr-ui-font); vertical-align: -2px; }
+      #ed-state { margin-top: 12px; }
+      #gear { position: fixed; z-index: 2; opacity: 0; transition: opacity var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out); background: var(--ofr-float-bg, var(--ofr-panel-bg)); }
+      html[data-pos$="r"] #gear { left: 8px; }
+      html[data-pos$="l"] #gear { right: 8px; }
+      html[data-pos^="t"] #gear { bottom: 8px; }
+      html[data-pos^="b"] #gear { top: 8px; }
+      body:hover #gear, #gear:focus-visible { opacity: 1; }
+      html[data-edit="true"] #gear { display: none; }
+      #gear:focus-visible, #edit :focus-visible { outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average)); outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <main id="stage" aria-label="OpenFront Pro stream overlay"><div id="cards"></div></main>
+
+    <aside id="edit" class="ofr-float" hidden aria-label="Overlay settings">
+      <div class="ed-head">
+        <h1 class="ofr-eyebrow">Stream overlay</h1>
+        <button type="button" id="ed-done" class="ofr-btn ofr-btn-primary ofr-btn-sm" title="Hide these settings (hover the window for the gear to get them back)">Done</button>
+      </div>
+      <p class="ed-how" id="ed-how"></p>
+      <div class="ed-group">
+        <span class="ov-label">Cards</span>
+        <div class="ed-chips" id="ed-widgets">
+          <button type="button" class="ofr-chip" data-w="rank">Rank</button>
+          <button type="button" class="ofr-chip" data-w="live">Live game</button>
+          <button type="button" class="ofr-chip" data-w="recap">Recap</button>
+        </div>
+      </div>
+      <div class="ed-group">
+        <span class="ov-label">Corner</span>
+        <div class="ed-chips" id="ed-pos">
+          <button type="button" class="ofr-chip" data-pos="tl" aria-label="Top left" title="Top left">&#x25E4;</button>
+          <button type="button" class="ofr-chip" data-pos="tr" aria-label="Top right" title="Top right">&#x25E5;</button>
+          <button type="button" class="ofr-chip" data-pos="bl" aria-label="Bottom left" title="Bottom left">&#x25E3;</button>
+          <button type="button" class="ofr-chip" data-pos="br" aria-label="Bottom right" title="Bottom right">&#x25E2;</button>
+        </div>
+      </div>
+      <div class="ed-group">
+        <span class="ov-label">Backdrop</span>
+        <div class="ed-chips" id="ed-bg">
+          <button type="button" class="ofr-chip" data-bg="transparent">None</button>
+          <button type="button" class="ofr-chip" data-bg="green">Green</button>
+          <button type="button" class="ofr-chip" data-bg="dark">Dark</button>
+        </div>
+      </div>
+      <label class="ed-group">
+        <span class="ov-label">Size</span>
+        <span class="ed-inline"><input type="range" id="ed-scale" min="0.6" max="2" step="0.1" /><output id="ed-scale-out"></output></span>
+      </label>
+      <label class="ed-group">
+        <span class="ov-label">Recap</span>
+        <span class="ed-inline"><input type="number" id="ed-recap" class="ofr-input ofr-input-sm" min="0" max="600" step="5" /> seconds (0: until the next game)</span>
+      </label>
+      <div class="ed-group">
+        <span class="ov-label">Show</span>
+        <div class="ed-chips">
+          <button type="button" class="ofr-chip" id="ed-name">My name</button>
+          <button type="button" class="ofr-chip" id="ed-demo" title="Made-up numbers, to place the overlay without a game">Sample data</button>
+        </div>
+      </div>
+      <p class="ed-note" id="ed-streamer" hidden>Streamer mode is on: your name is never shown.</p>
+      <div class="ed-obs">
+        <span class="ov-label" id="ed-url-label">Browser source</span>
+        <div class="ed-row">
+          <button type="button" id="ed-copy" class="ofr-btn ofr-btn-sm">Copy address</button>
+          <button type="button" id="ed-window" class="ofr-btn ofr-btn-sm" hidden>Open as window</button>
+        </div>
+        <p class="ed-note" id="ed-url-note"></p>
+      </div>
+      <p class="ofr-state" id="ed-state" hidden></p>
+    </aside>
+    <button type="button" id="gear" class="ofr-btn ofr-btn-icon" aria-label="Overlay settings" title="Overlay settings">&#x2699;</button>
+
+    <script src="themes.js"></script>
+    <script src="scoring.js"></script>
+    <script src="overlay-core.js"></script>
+    <script src="overlay.js"></script>
+  </body>
+</html>

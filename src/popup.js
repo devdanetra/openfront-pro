@@ -609,6 +609,37 @@ if (!IN_PAGE && window.top !== window) {
 }
 
 tabs();
+// Tools tab: each button opens one of the extension's own pages (the worker opens
+// it, so this works from the toolbar popup, the in-page overlay and the launcher).
+for (const button of ROOT.querySelectorAll("[data-open]")) {
+  button.addEventListener("click", (e) => {
+    if (!e.isTrusted) return;
+    chrome.runtime.sendMessage({ type: "openPage", page: button.dataset.open }).catch(() => {});
+  });
+}
+// The launcher's settings page (in your browser, never the copy inside the game
+// window, which is what gets streamed): the overlay's OBS Browser Source address.
+// It carries the launcher's secret key, so it is copied, not shown.
+if (!IN_PAGE && document.documentElement.classList.contains("ofr-launcher") && byId("overlay-obs")) {
+  byId("overlay-obs").hidden = false;
+  byId("overlay-obs-copy").addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(chrome.runtime.getURL("src/overlay.html") + "?bg=transparent");
+      ok = true;
+    } catch {
+      ok = false;
+    }
+    b.dataset.state = ok ? "ok" : "error";
+    b.textContent = ok ? "Copied ✓" : "Failed";
+    setTimeout(() => {
+      delete b.dataset.state;
+      b.textContent = "Copy";
+    }, 1800);
+  });
+}
+
 load();
 consentBanner();
 loadTheme();

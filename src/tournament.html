@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OpenFront Pro - tournaments</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="content.css" />
+    <link rel="stylesheet" href="tournament.css" />
+  </head>
+  <body>
+    <div class="tn-wrap">
+      <header class="tn-top">
+        <img src="../icons/icon48.png" width="32" height="32" alt="" />
+        <h1>Tournaments</h1>
+        <span class="ofr-chip" title="Not affiliated with OpenFront">Unofficial</span>
+        <span class="tn-grow"></span>
+        <label class="tn-sr" for="tn-pick">Open tournament</label>
+        <select id="tn-pick" class="ofr-input"></select>
+        <button type="button" id="tn-new" class="ofr-btn ofr-btn-primary">+ New</button>
+        <button type="button" id="tn-import" class="ofr-btn" aria-expanded="false" aria-controls="tn-import-bar">Import</button>
+      </header>
+      <div id="tn-import-bar" class="tn-import ofr-card" hidden>
+        <button type="button" id="tn-file-btn" class="ofr-btn">Choose .json file</button>
+        <input type="file" id="tn-file" accept=".json,application/json" hidden />
+        <label class="tn-sr" for="tn-link">Share code</label>
+        <input id="tn-link" class="ofr-input" placeholder="…or paste a share code (#t=…)" autocomplete="off" spellcheck="false" />
+        <button type="button" id="tn-link-open" class="ofr-btn">Open</button>
+        <p id="tn-import-msg" class="ofr-state ofr-state-compact" data-kind="error" hidden></p>
+      </div>
+      <div id="tn-save" class="tn-banner" role="alert" hidden></div>
+      <div id="tn-notice" class="tn-banner" hidden></div>
+      <div id="tn-damaged" class="tn-banner" hidden></div>
+      <div id="tn-consent" class="tn-banner" hidden></div>
+      <div id="tn-shared" class="tn-banner" hidden></div>
+      <main id="tn-main"></main>
+      <p id="tn-live" class="tn-sr" aria-live="polite"></p>
+    </div>
+    <script src="themes.js"></script>
+    <script src="tournament-core.js"></script>
+    <script src="tournament.js"></script>
+  </body>
+</html>

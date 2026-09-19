@@ -1162,10 +1162,7 @@ function rememberPublicId(model) {
 // this runs the moment the record is in - closing the panel cannot lose it.
 async function recordSession(model, gameId, seenAt = Date.now()) {
   if (model?.state !== "ok" || !model.me) return null; // spectated, or never spawned
-  // Watching the replay of an old game also ends on the win screen. Only a game
-  // that ended around the time this tab saw its end screen was played now.
-  const ended = model.meta.endedAt;
-  if (ended != null && Math.abs(seenAt - ended) > 3 * HOUR) return null;
+  if (!endedRecently(model, seenAt)) return null; // a replay of an old game
   return recordGame({
     gameId,
     // An exact place only. Tied survivors and team games have none, and a made-up
@@ -1215,7 +1212,9 @@ async function loadRecap(gameId) {
   let errors = 0;
   for (let attempt = 1; ; attempt++) {
     if (!alive()) return; // orphaned by an extension reload: the new copy takes over
-    if (!widget.el.isConnected) return; // closed (the pending entry keeps the session honest)
+    // closed (the pending entry keeps the session honest) - unless a stream overlay
+    // waits for the card, which does not depend on the panel
+    if (!widget.el.isConnected && !overlayOn()) return;
     if (currentGameId() !== gameId) {
       widget.destroy(); // left the game; nothing to wait for on this page
       return;
@@ -1245,15 +1244,19 @@ async function loadRecap(gameId) {
       lastRecord = record;
       lastRecordGame = gameId;
       lastRecap = model;
+      // the stream overlay's end card (only while one is open, and never a replay's)
+      const played = endedRecently(model, seenAt);
+      if (played) publishOverlayRecap(model, gameId);
       if (widget.el.isConnected) widget.setModel(model);
       await recordSession(model, gameId, seenAt);
       await forgetPendingRecap(gameId);
       if (model.state !== "ok") return;
       const meBefore = known.get(selfStatsName()?.toLowerCase() ?? "");
-      if ((await lookupRecapPlayers(record, model)) && widget.el.isConnected && alive()) {
+      if (widget.el.isConnected && (await lookupRecapPlayers(record, model)) && widget.el.isConnected && alive()) {
         model = R.analyse(record, recapContext(gameId));
         lastRecap = model;
         widget.setModel(model);
+        if (played) publishOverlayRecap(model, gameId); // ...now with everyone's rank
       }
       appendSelfProgress(widget, model, gameId, meBefore).catch(() => {});
       resolvePendingRecaps(gameId).catch(() => {});
@@ -1914,6 +1917,284 @@ function readGameState() {
   }
 }
 
+// --- Stream overlay (src/overlay.html) ----------------------------------------------
+// While the overlay page is open it refreshes chrome.storage.local "overlayEnabled"
+// (a time) every 20 s, and sets it to 0 when it closes. Only while that is fresh
+// does this tab publish, into chrome.storage.local: "overlaySelf" (your ofstats
+// name, for the rank card), "overlayLive" (the running game: on change and every
+// ~4 s, removed when you leave it; one openfront.io tab at a time) and
+// "overlayRecap" (the share card, once per game; drawn masked while streamer mode
+// is on or an overlay page hides your name - "overlayMask"). A few seconds after
+// the last overlay page is gone, all of it is removed again. Local only: nothing
+// is sent anywhere, and nothing is written at all while no overlay is open.
+
+// <overlay-pure> (tools/test-overlay.mjs runs this block in node)
+const OVERLAY_STALE_MS = 150000; // = OFR_OVERLAY.STALE_MS in overlay-core.js
+const OVERLAY_LIVE_STALE_MS = 12000; // = OFR_OVERLAY.LIVE_STALE_MS
+const OVERLAY_KEYS = ["overlayLive", "overlaySelf", "overlayRecap", "overlayMask"];
+// Map and mode names end up on the broadcast, and a script in the page can fake
+// both: plain names only (= LABEL in overlay-core.js).
+function overlayLabel(v) {
+  const s = typeof v === "string" ? v.trim() : "";
+  return /^[A-Za-z0-9 .'()&-]{1,40}$/.test(s) ? s : "";
+}
+// Land shares to 0.1 % of the map: what the overlay shows, and no more churn.
+function overlayShare(v) {
+  return typeof v === "number" && Number.isFinite(v) ? Math.round(Math.min(1, Math.max(0, v)) * 1000) / 1000 : null;
+}
+// What counts as a change: everything but the clock, which the overlay runs itself.
+function overlaySignature(live) {
+  if (!live) return "";
+  const { seconds, at, owner, ...rest } = live;
+  return JSON.stringify(rest);
+}
+// Several openfront.io tabs, one overlayLive: the tab that wrote it keeps it, any
+// tab takes over an abandoned one, and a tab on screen takes over from one that
+// is not.
+function overlayMayWrite(stored, me, visible, now) {
+  if (!stored || typeof stored !== "object" || stored.owner === me) return true;
+  const at = stored.at;
+  if (typeof at !== "number" || !Number.isFinite(at) || now - at > OVERLAY_LIVE_STALE_MS || at - now > 60000) return true;
+  return visible === true && stored.visible !== true;
+}
+// Only its owner removes it - or anyone, once it is abandoned.
+function overlayMayRemove(stored, me, now) {
+  if (!stored || typeof stored !== "object") return false;
+  if (stored.owner === me) return true;
+  const at = stored.at;
+  return typeof at !== "number" || !Number.isFinite(at) || now - at > OVERLAY_LIVE_STALE_MS;
+}
+// </overlay-pure>
+
+const OVERLAY_TAB = `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+let overlayBeat = 0;
+let overlayBeatRead = false;
+let overlayMaskAt = 0;
+let overlayStored = null; // overlayLive as it is in storage (whichever tab wrote it)
+let overlayFigures = null; // newest "overlay-stats" from page-probe.js
+let overlayLiveSig = ""; // what this tab wrote last
+let overlayLiveAt = 0;
+let overlayWasOn = null; // null: not known yet
+let overlayOffSince = 0;
+let overlaySelfSent = null;
+const overlayRecapAt = new Map(); // gameId -> when its card was first published
+let overlayCardMask = null; // the masking the last card this tab published was made for
+function overlayOn() {
+  const age = Date.now() - overlayBeat;
+  return settings.enabled !== false && overlayBeat > 0 && age < OVERLAY_STALE_MS && age > -60000;
+}
+// Your name stays off the recap card: streamer mode, or an open overlay page that
+// hides it (name=0 / streamer=1).
+function overlayMasked() {
+  const age = Date.now() - overlayMaskAt;
+  return settings.streamerMode === true || (overlayMaskAt > 0 && age < OVERLAY_STALE_MS && age > -60000);
+}
+try {
+  chrome.storage.local.get({ overlayEnabled: 0, overlayMask: 0, overlayLive: null }).then((r) => {
+    overlayBeat = Number(r.overlayEnabled) || 0;
+    overlayMaskAt = Number(r.overlayMask) || 0;
+    overlayStored = r.overlayLive ?? null;
+    overlayBeatRead = true;
+  }, () => {});
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes.overlayEnabled) overlayBeat = Number(changes.overlayEnabled.newValue) || 0;
+    if (changes.overlayLive) overlayStored = changes.overlayLive.newValue ?? null;
+    if (changes.overlayMask) {
+      const was = overlayMasked();
+      overlayMaskAt = Number(changes.overlayMask.newValue) || 0;
+      if (overlayMasked() !== was) republishOverlayRecap();
+    }
+  });
+} catch {
+  // storage unavailable
+}
+// The probe's figures arrive by postMessage, which the page could fake: shape and
+// range checks only, and they only ever reach your own overlay.
+window.addEventListener("message", (e) => {
+  if (e.source !== window || !alive()) return;
+  const m = e.data;
+  if (!m || m.__ofr !== "overlay-stats" || typeof m.gameId !== "string" || !/^[A-Za-z0-9]{4,16}$/.test(m.gameId)) return;
+  const n = (v, max) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(v, max) : null);
+  overlayFigures = {
+    got: Date.now(),
+    gameId: m.gameId,
+    seconds: n(m.seconds, 172800) ?? 0,
+    spawn: m.spawn === true,
+    humans: n(m.humans, 5000),
+    humansTotal: n(m.humansTotal, 5000),
+    players: n(m.players, 5000),
+    place: n(m.place, 5000),
+    share: n(m.share, 1),
+    top: (Array.isArray(m.top) ? m.top : []).slice(0, 3).map((t) => ({ share: n(t?.share, 1) ?? 0, me: t?.me === true })),
+    map: overlayLabel(m.map),
+  };
+});
+
+// No overlay page left (it closed: 0, or its heartbeat went stale): what the tabs
+// published goes too, after a few seconds' grace (a reloading page is back at once).
+// A tab that starts with no overlay open clears leftovers of a crash the same way.
+function overlayCleanup(on, now) {
+  if (on) {
+    overlayWasOn = true;
+    overlayOffSince = 0;
+    return;
+  }
+  if (!overlayBeatRead || overlayWasOn === false) return;
+  if (!overlayOffSince) overlayOffSince = now;
+  if (now - overlayOffSince < 5000) return;
+  overlayWasOn = false;
+  overlaySelfSent = null;
+  overlayLiveSig = "";
+  overlayStored = null;
+  overlayRecapAt.clear();
+  overlayCardMask = null;
+  chrome.storage.local.remove(OVERLAY_KEYS).catch(() => {});
+}
+
+function overlayTick() {
+  if (!alive()) return;
+  const now = Date.now();
+  const on = overlayOn();
+  const flag = on ? "on" : "off"; // page-probe.js sends its figures only while "on"
+  if (document.documentElement.dataset.ofrOverlay !== flag) document.documentElement.dataset.ofrOverlay = flag;
+  overlayCleanup(on, now);
+  // the masking changed while no card could be drawn (overlay off for a moment): now
+  if (on && overlayCardMask !== null && overlayCardMask !== overlayMasked()) republishOverlayRecap();
+  const name = on ? selfStatsName() : null;
+  if (name && name !== overlaySelfSent) chrome.storage.local.set({ overlaySelf: { name } }).catch(() => {});
+  overlaySelfSent = name ?? (on ? overlaySelfSent : null);
+  const gameId = currentGameId();
+  const game = readGameState();
+  let live = null;
+  if (on && gameId && game?.running) {
+    const f = overlayFigures?.gameId === gameId && now - overlayFigures.got < 5000 ? overlayFigures : null;
+    const phase = game.spawn || f?.spawn ? "spawn" : game.alive === false ? "out" : winModalShown() ? "ended" : game.alive === null ? "watching" : "playing";
+    live = {
+      gameId,
+      phase,
+      seconds: f ? Math.round(f.seconds + (now - f.got) / 1000) : 0,
+      map: f?.map || overlayLabel(lastLobbyMap),
+      mode: overlayLabel(typeof game.mode === "string" ? game.mode : lastLobbyMode),
+      humans: f?.humans ?? null,
+      humansTotal: f?.humansTotal ?? null,
+      players: f?.players ?? null,
+      place: f?.place ?? null,
+      share: overlayShare(f?.share),
+      top: (f?.top ?? []).map((t) => ({ share: overlayShare(t.share) ?? 0, me: t.me })),
+      visible: document.visibilityState === "visible",
+    };
+  }
+  const mine = overlayStored?.owner === OVERLAY_TAB;
+  if (!live) {
+    overlayLiveSig = "";
+    // ours goes when we leave the game; a tab that went away without clearing
+    // (closed, crashed, a full page load in the launcher) is swept once abandoned
+    if (mine || (on && overlayMayRemove(overlayStored, OVERLAY_TAB, now))) {
+      overlayStored = null;
+      chrome.storage.local.remove("overlayLive").catch(() => {});
+    }
+    return;
+  }
+  if (!overlayMayWrite(overlayStored, OVERLAY_TAB, live.visible, now)) {
+    overlayLiveSig = ""; // another tab has it
+    return;
+  }
+  const sig = overlaySignature(live);
+  const since = now - overlayLiveAt;
+  // unchanged figures are re-sent every few seconds: the overlay drops a card whose tab went quiet
+  if (mine && sig === overlayLiveSig && since < 4000) return;
+  // creeping figures (land, counts) at most every 2 s; a new phase or game at once
+  if (mine && since < 2000 && overlayStored.phase === live.phase && overlayStored.gameId === live.gameId) return;
+  overlayLiveSig = sig;
+  overlayLiveAt = now;
+  overlayStored = { ...live, owner: OVERLAY_TAB, at: now };
+  chrome.storage.local.set({ overlayLive: overlayStored }).catch(() => {});
+}
+setInterval(() => {
+  try {
+    overlayTick();
+  } catch {
+    // extension reloaded under us
+  }
+}, 1000);
+window.addEventListener("pagehide", () => {
+  if (overlayStored?.owner !== OVERLAY_TAB || !alive()) return;
+  overlayLiveSig = "";
+  overlayStored = null;
+  chrome.storage.local.remove("overlayLive").catch(() => {});
+});
+
+// Watching the replay of an old game also ends on the win screen. Only a game
+// that ended around the time this tab saw its end screen was played now.
+function endedRecently(model, seenAt) {
+  const ended = model?.meta?.endedAt;
+  return ended == null || Math.abs(seenAt - ended) <= 3 * HOUR;
+}
+
+// The recap's share card, at 1200x630, for the overlay's end-of-game card. Drawn
+// masked (streamer mode's "You", no rank) while streamer mode is on or an overlay
+// page hides your name: `record` is read again for that.
+function publishOverlayRecap(model, gameId, record = lastRecordGame === gameId ? lastRecord : null) {
+  const R = globalThis.OFR_RECAP;
+  if (!alive() || !overlayOn() || model?.state !== "ok" || typeof R?.drawCard !== "function") return;
+  try {
+    const mask = overlayMasked();
+    overlayCardMask = mask; // tried for this masking: no retry loop if it cannot be drawn
+    if ((model.streamer === true) !== mask) {
+      const again = record && typeof R.analyse === "function" ? R.analyse(record, { ...recapContext(gameId), streamer: mask }) : null;
+      if (again?.state === "ok") model = again;
+      else if (mask) {
+        dropOverlayRecap(gameId); // an unmasked card of this game must not stay
+        return;
+      }
+    }
+    const drawn = R.drawCard(model, { icon });
+    const card = document.createElement("canvas");
+    card.width = 1200;
+    card.height = 630;
+    const ctx = card.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(drawn, 0, 0, card.width, card.height);
+    let png = card.toDataURL("image/png");
+    if (png.length > 1_500_000) png = card.toDataURL("image/webp", 0.92);
+    if (png.length > 1_500_000) return;
+    if (!overlayRecapAt.has(gameId)) overlayRecapAt.set(gameId, Date.now());
+    chrome.storage.local.set({ overlayRecap: { gameId, at: overlayRecapAt.get(gameId), png, streamer: model.streamer === true } }).catch(() => {});
+  } catch {
+    // no canvas / storage full: the overlay simply shows no recap card
+  }
+}
+function dropOverlayRecap(gameId) {
+  chrome.storage.local.get("overlayRecap").then((r) => {
+    const card = r?.overlayRecap;
+    if (card?.gameId === gameId && card.streamer !== true) chrome.storage.local.remove("overlayRecap").catch(() => {});
+  }, () => {});
+}
+// Streamer mode or an overlay's name setting flipped: the card this tab published
+// is drawn again to match (masked, or with your name and rank back).
+function republishOverlayRecap() {
+  if (!alive() || !overlayOn() || !lastRecap || !lastRecordGame || !overlayRecapAt.has(lastRecordGame)) return;
+  publishOverlayRecap(lastRecap, lastRecordGame);
+}
+// Dev tools only: tools/shot-overlay.mjs seeds "ofrDevHooks" in its throw-away
+// profile and feeds a record through the same path as a finished game.
+try {
+  chrome.storage.local.get("ofrDevHooks").then((r) => {
+    if (r?.ofrDevHooks !== true || !alive()) return;
+    globalThis.__ofrOverlayRecap = (record, gameId, ctx = {}) => {
+      const model = globalThis.OFR_RECAP.analyse(record, { ...recapContext(gameId), ...ctx });
+      lastRecord = record;
+      lastRecordGame = gameId;
+      lastRecap = model;
+      publishOverlayRecap(model, gameId);
+      return model.state;
+    };
+  }, () => {});
+} catch {
+  // storage unavailable
+}
+
 function syncChat() {
   const chat = globalThis.OFR_CHAT;
   if (!chat || !alive()) return;
@@ -2022,8 +2303,25 @@ function report(detail) {
 const OFFLINE_RETRY_MS = 5000;
 let offlineRetry = null;
 
+// The clan hub (an extension page) cannot read OpenFront's localStorage, so
+// your ofstats name is left for it in chrome.storage.local (local only, never
+// sent), written when it changes: streamer mode hides it there, and Recruits
+// leaves you out. Guest and hidden names are not written.
+let notedSelfStatsName = null;
+function noteSelfStatsName() {
+  const name = selfStatsName();
+  if (!name || name === notedSelfStatsName) return;
+  notedSelfStatsName = name;
+  try {
+    chrome.storage.local.set({ selfStatsName: name }).catch(() => {});
+  } catch {
+    // extension context gone (reloaded); the new instance writes it
+  }
+}
+
 async function refresh() {
   if (!settings.enabled) return;
+  noteSelfStatsName();
   if (!settings.dataConsent) {
     // Not agreed to lookups (src/welcome.html): nothing leaves the browser. The
     // PRO button stays, and leads to that page.
@@ -2250,6 +2548,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
       recapWidget.setModel(lastRecap);
     }
   }
+  if (changes.streamerMode) republishOverlayRecap(); // the stream overlay's card, masked or not
   if (changes.enabled || changes.dataConsent) installHomeWidget();
   if (changes.layout || changes.uiSize || changes.siteLayout) applyLayout();
   // Only a change to WHAT is shown rebuilds the decorations. A star or a theme

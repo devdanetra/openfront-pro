@@ -1,6 +1,6 @@
 # Privacy policy - OpenFront Pro
 
-_Last updated: 18 September 2026_
+_Last updated: 19 September 2026_
 
 OpenFront Pro is an unofficial browser extension for the game at openfront.io.
 It is not affiliated with, endorsed by or sponsored by OpenFront.
@@ -28,7 +28,20 @@ either, and neither does the map preview below.
 | What | To | When | Why |
 |---|---|---|---|
 | **Player names**: the names shown in your lobby or game (including your own OpenFront username), the players named in a game's recap, and any name you type into the dashboard's search or *Compare* box; and **clan tags** seen there or opened in the dashboard | `api.ofstats.io` - an independent, third-party community statistics service for public OpenFront games | while you look at a lobby, the in-game player panels, the dashboard or the recap; your own name also on OpenFront's front page (your stats card, at most once a minute) and again after each game you played (for the rank change). Without any name: the weekly clan table in the dashboard, and a reachability check each time you open the settings | to fetch public player and clan statistics and show ranks |
-| **The id of a game whose end screen you saw** (played, spectated or a replay) | OpenFront's own public API (`api.openfront.io`) | when the end-of-game screen appears, then every 5 s for a minute and every 30 s after that while the game stays on screen (up to about 30 minutes), until OpenFront publishes the record; a game whose record was not published yet is asked for again when you next open an openfront.io page, for up to 24 hours. Only while the recap is switched on | to read the public record of that game |
+| **The id of a game whose end screen you saw** (played, spectated or a replay), and **each game id you add to a tournament** in the *Tournaments* page | OpenFront's own public API (`api.openfront.io`) | when the end-of-game screen appears, then every 5 s for a minute and every 30 s after that while the game stays on screen (up to about 30 minutes), until OpenFront publishes the record; a game whose record was not published yet is asked for again when you next open an openfront.io page, for up to 24 hours. Only while the recap is switched on. Tournaments: once per game you add (or when a tournament you open or import lists it; more than 20 at once only after you click *Fetch*), two at a time and at least 400 ms apart, and again only when you press *Retry* or OpenFront asked to slow down (HTTP 429: up to 3 more tries, 2-8 s apart); a finished game's record is kept in this browser, so it is not asked for twice | to read the public record of that game |
+
+**Clan hub** (an extension page, opened from the popup's *Tools* tab or the
+dashboard's clan section; same agreement as above, nothing is asked before it).
+It sends to `api.ofstats.io` only: the weekly clan table (`/clans?limit=50`,
+with `&week=YYYY-Www` for the week you look at and the week before it, for the
+rank changes); the page of a clan you open or compare (`/clans/<TAG>`); and
+lookups of that clan's members by their full name as ofstats lists them,
+`[TAG] name` (the 24 members with the most games when you open a clan, up to
+50 if you ask for all of them; the 12 with the most games per clan in *Compare*),
+six at a time, cached like every other lookup. Its **Recruits** list sends
+nothing: it is built only from players this browser has already looked up -
+in your lobbies and games, in recaps, and names you typed into the dashboard's
+search or *Compare* box - kept in a small local index (see below).
 
 Map images for the lobby preview and its zoom view come from OpenFront's own
 asset CDN - the same files the game page itself loads. This does not wait for
@@ -110,9 +123,17 @@ companion launcher, see the end of this section):
   watchlist of player names. Chrome syncs this through your own Google account
   if you have Chrome sync turned on; the developer has no access to it.
 - **`chrome.storage.local`** (this device only) - a cache of looked-up public
-  statistics (10 minutes for a hit, 30 for a miss or a failed lookup), today's
+  statistics (10 minutes for a hit, 30 for a miss or a failed lookup; expired
+  entries are deleted when the extension's background worker starts), the clan
+  hub's recruit index (for each player without a clan tag whose lookup found a
+  rank: the name, percentile, games, wins, last game date and games per mode -
+  at most 500 players, the most recently looked up, each dropped 60 days after
+  its last lookup), today's
   session results, games waiting for their record to be published (at most a
-  day), your OpenFront public player id, your chat mute list, the last
+  day), your OpenFront public player id, your own OpenFront name as ofstats
+  knows it (noted whenever the extension reads it on openfront.io, so the clan
+  hub can hide it in streamer mode and leave you out of its recruits), your
+  chat mute list, the last
   diagnostic report shown in the popup (site name only, no page address; it can
   list the player names from the last scan that had no statistics or whose
   lookup failed) and a few interface preferences.
@@ -125,17 +146,43 @@ companion launcher, see the end of this section):
   lookups are agreed, since the recap is where it is shown) are kept in the
   tab's memory only, never written to storage and never sent anywhere; saving
   a GIF or video writes a file on your computer.
+- **Stream overlay** (only while its page is open) - in `chrome.storage.local`:
+  the page's heartbeat time (and whether it hides your name), your ofstats
+  name, the running game (clock, map, mode, your place and land share, player
+  counts, the three biggest land shares - no other player's name; removed when
+  you leave the game) and the recap share image of your last game (up to about
+  1.5 MB). When the overlay page closes it says so, and an open openfront.io tab
+  removes all of it a few seconds later (a tab opened later clears what a
+  crash left behind). Nothing of it is sent anywhere; the page only reads it
+  and asks the extension's worker for your own rank (the same lookup as the
+  home card). Streamer mode keeps your name and your rank off the overlay, and
+  with streamer mode or the overlay's "name" switch off the recap image is
+  drawn without them. While an overlay is open, the openfront.io page can see
+  that it is (a `data-ofr-overlay="on"` mark on the page, which tells the
+  extension's page script to collect the figures).
+- **Tournaments** - in `chrome.storage.local`: the tournaments you create or
+  import (name, format, scoring, participant names, clan tags and player
+  names you type or pick, the game ids you add, your manual choices; at most
+  30), and a cache of the public records of the games in them (who played,
+  who won, when each player fell, final land and conquests - at most 250
+  games / about 3 MB, least recently used dropped first, the open
+  tournament's kept). A share code or an exported `.json` file contains the
+  tournament (not the records); it goes wherever you send it - the extension
+  uploads nothing.
 
 Removing the extension deletes all of it. "Clear cached ranks" in the popup
-clears the cache at any time.
+clears the cache and the recruit index at any time.
 
 **Steam companion launcher.** If you use the launcher (`launcher/`) instead of
 the browser extension, what the extension keeps in `chrome.storage.sync` and
-`chrome.storage.local` above - except the rank cache - is saved in a plain-text
+`chrome.storage.local` above - except the rank cache, but including the clan
+hub's recruit index - is saved in a plain-text
 JSON file, `%APPDATA%\openfront-pro-launcher\storage.json`, on your computer
 (with `launcher.lock` next to it while the launcher runs, and a
 `storage.json.corrupt-<time>` copy if the file was ever found damaged). The
-rank cache stays in the launcher's memory, and so do the chat keys and the
+rank cache and the stream overlay's data stay in the launcher's memory (the
+overlay page is served on `127.0.0.1` only, behind the launcher's secret key),
+and so do the chat keys and the
 team-channel state, which only the launcher's copy of the extension's worker
 can read. The launcher is a portable program: deleting it does not delete that
 folder; delete the folder yourself to remove the data.

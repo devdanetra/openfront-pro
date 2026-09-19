@@ -11,6 +11,8 @@
 
 // Chat: BIP-340 signing (vendored @noble) and the small Nostr client built on it.
 importScripts("vendor/nostr-crypto.js", "nostr.js", "team.js");
+// The clan hub's Recruits index (recruitRecord / mergeRecruits): pure, no DOM.
+importScripts("scoring.js", "clans-logic.js");
 
 const OFSTATS_API = "https://api.ofstats.io";
 
@@ -104,11 +106,55 @@ const chatConsentChecked = chrome.storage.sync
   })
   .catch(() => {});
 
-// Entries written under an older CACHE_PREFIX can never be read again.
+// ---- the clan hub's Recruits index -------------------------------------------------------
+// Untagged, ranked players this browser looked up (any lookup: lobbies, games,
+// recaps, the dashboard's search and compare), one slim record each (no game
+// list), at most OFR_CLAN_LOGIC.RECRUIT_CAP, none older than RECRUIT_MAX_AGE.
+// The hub reads only this key, never the whole cache. Writes are batched.
+const recruitPending = [];
+let recruitTimer = null;
+let recruitWrite = Promise.resolve();
+function noteRecruit(record) {
+  if (!record) return;
+  recruitPending.push(record);
+  if (!recruitTimer) recruitTimer = setTimeout(flushRecruits, 300);
+}
+function flushRecruits() {
+  recruitTimer = null;
+  const batch = recruitPending.splice(0);
+  if (!batch.length) return recruitWrite;
+  const L = globalThis.OFR_CLAN_LOGIC;
+  recruitWrite = recruitWrite
+    .then(async () => {
+      const key = L.RECRUIT_KEY;
+      const stored = (await chrome.storage.local.get(key))[key];
+      await chrome.storage.local.set({ [key]: { v: 1, players: L.mergeRecruits(stored?.players, batch) } });
+    })
+    .catch(() => {}); // storage full or gone: the hub just shows fewer players
+  return recruitWrite;
+}
+
+// At worker start: entries written under an older CACHE_PREFIX can never be
+// read again, and expired ones are only removed when read, which a name never
+// seen again never is - both go. Players in the cache (expired too) seed the
+// Recruits index first, so it starts where the old cache-based list left off.
 chrome.storage.local
   .get(null)
   .then((all) => {
-    const stale = Object.keys(all).filter((k) => /^ofs\d+:/.test(k) && !k.startsWith(CACHE_PREFIX));
+    const now = Date.now();
+    const stale = [];
+    for (const [k, entry] of Object.entries(all ?? {})) {
+      if (!/^ofs\d+:/.test(k)) continue;
+      if (!k.startsWith(CACHE_PREFIX)) {
+        stale.push(k);
+        continue;
+      }
+      if (!/^clans?:/.test(k.slice(CACHE_PREFIX.length)) && entry?.value?.found) {
+        const at = typeof entry.expiresAt === "number" ? Math.min(now, entry.expiresAt - HIT_TTL_MS) : now;
+        noteRecruit(globalThis.OFR_CLAN_LOGIC?.recruitRecord(entry.value, at));
+      }
+      if (!(entry?.expiresAt > now)) stale.push(k);
+    }
     if (stale.length) return chrome.storage.local.remove(stale);
   })
   .catch(() => {});
@@ -124,21 +170,31 @@ async function cacheGet(key) {
   if (hit && hit.expiresAt > Date.now()) return hit.value;
   if (hit) memoryCache.delete(key);
 
-  const stored = await chrome.storage.local.get(key);
-  const entry = stored[key];
-  if (entry && entry.expiresAt > Date.now()) {
-    memoryCache.set(key, entry);
-    return entry.value;
+  try {
+    const stored = await chrome.storage.local.get(key);
+    const entry = stored[key];
+    if (entry && entry.expiresAt > Date.now()) {
+      memoryCache.set(key, entry);
+      return entry.value;
+    }
+    if (entry) await chrome.storage.local.remove(key);
+  } catch {
+    // storage unreadable: a miss, looked up again
   }
-  if (entry) await chrome.storage.local.remove(key);
   return undefined;
 }
 
+// Never throws: when the write fails (storage.local full - its quota is 10 MB
+// without unlimitedStorage), the answer is still kept in memory and returned.
 async function cacheSet(key, value) {
   const ttl = value?.found ? HIT_TTL_MS : value?.reason === "error" ? ERROR_TTL_MS : MISS_TTL_MS;
   const entry = { value, expiresAt: Date.now() + ttl };
   memoryCache.set(key, entry);
-  await chrome.storage.local.set({ [key]: entry });
+  try {
+    await chrome.storage.local.set({ [key]: entry });
+  } catch {
+    // kept in memory only
+  }
 }
 
 function schedule(task) {
@@ -274,7 +330,30 @@ async function fetchClan(tag) {
       wins: m.wins ?? 0,
       winRate: m.winRate ?? null,
       lastPlayed: m.lastPlayed ?? null,
+      firstPlayed: m.firstPlayed ?? null,
     })),
+    // Clan hub (src/clans.js): this week's standing, win rate by stack size, the
+    // clan's own recent games (for head-to-head between two clans) and
+    // ofstats' reference stacked win rate.
+    current: d.current ?? null,
+    stackHistogram: Array.isArray(d.stackHistogram) ? d.stackHistogram.slice(0, 12) : null,
+    aces: (Array.isArray(d.aces) ? d.aces : []).slice(0, 5).map((a) => ({
+      name: strip(a.username),
+      username: String(a.username ?? ""),
+      score: a.score ?? null,
+      games: a.games ?? 0,
+      wins: a.wins ?? 0,
+    })),
+    recentGames: (Array.isArray(d.recentGames) ? d.recentGames : []).slice(0, 20).map((g) => ({
+      id: String(g.gameId ?? ""),
+      map: g.map ?? null,
+      mode: g.mode ?? null,
+      players: g.playerCount ?? null,
+      teams: g.playerTeams ?? null,
+      end: g.end ?? null,
+      winner: typeof g.winner === "string" ? g.winner : null,
+    })),
+    reference: d.reference ?? null,
   };
 }
 
@@ -309,6 +388,63 @@ async function lookupClanLeaderboard() {
   return promise;
 }
 
+// The clan hub's weekly table (src/clans.js): /clans?limit=50[&week=YYYY-Www],
+// ofstats' top 50 by points for one week, plus its 12-week rank/points timeline
+// of the top 10. One request per week viewed (the hub also asks for the week
+// before, for movers); cached like every other answer.
+async function lookupClanTable(week) {
+  const wk = /^\d{4}-W\d{2}$/.test(String(week ?? "")) ? String(week) : null;
+  const key = `${CACHE_PREFIX}clans:table:${wk ?? "current"}`;
+  const cached = await cacheGet(key);
+  if (cached !== undefined) return cached;
+  if (inFlight.has(key)) return inFlight.get(key);
+  const n = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const promise = schedule(async () => {
+    const res = await fetch(`${OFSTATS_API}/clans?limit=50${wk ? `&week=${wk}` : ""}`, { headers: { accept: "application/json" } });
+    if (res.status === 400 || res.status === 404) return { found: false, reason: "no-history", status: res.status };
+    if (!res.ok) return { found: false, reason: "error", status: res.status };
+    const d = await res.json();
+    const t = d.timeline ?? {};
+    return {
+      found: true,
+      week: typeof d.week === "string" ? d.week : wk,
+      weekStart: n(d.weekStart),
+      weekEnd: n(d.weekEnd),
+      isCurrentWeek: d.isCurrentWeek === true,
+      total: n(d.pagination?.total),
+      clans: (Array.isArray(d.clans) ? d.clans : []).slice(0, 50).map((c) => ({
+        rank: n(c.rank),
+        tag: String(c.clanTag ?? ""),
+        points: n(c.points),
+        games: n(c.games),
+        wins: n(c.wins),
+        stackedGames: n(c.stackedGames),
+        stackedWins: n(c.stackedWins),
+        stackedWinRate: n(c.stackedWinRate),
+        activeMembers: n(c.activeMembers),
+        pointsPerMember: n(c.pointsPerMember),
+      })),
+      timeline: {
+        weeks: (Array.isArray(t.weeks) ? t.weeks : []).slice(0, 26).map(String),
+        series: (Array.isArray(t.series) ? t.series : []).slice(0, 12).map((s) => ({
+          tag: String(s.clanTag ?? ""),
+          ranks: (Array.isArray(s.ranks) ? s.ranks : []).slice(0, 26).map(n),
+          points: (Array.isArray(s.points) ? s.points : []).slice(0, 26).map(n),
+        })),
+      },
+      clanOfTheWeek: d.clanOfTheWeek?.clanTag ? { week: String(d.clanOfTheWeek.week ?? ""), tag: String(d.clanOfTheWeek.clanTag), points: n(d.clanOfTheWeek.points) } : null,
+    };
+  })
+    .catch((err) => ({ found: false, reason: "error", error: String(err) }))
+    .then(async (value) => {
+      await cacheSet(key, value);
+      return value;
+    })
+    .finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
+  return promise;
+}
+
 async function lookupClan(tag) {
   const key = `${CACHE_PREFIX}clan:${tag.toUpperCase()}`;
   const cached = await cacheGet(key);
@@ -337,6 +473,7 @@ async function lookup(username, fresh = false) {
     .catch((err) => ({ found: false, reason: "error", error: String(err) }))
     .then(async (value) => {
       await cacheSet(key, value);
+      if (value?.found) noteRecruit(globalThis.OFR_CLAN_LOGIC?.recruitRecord(value));
       return value;
     })
     .finally(() => inFlight.delete(key));
@@ -572,6 +709,11 @@ function normaliseRecord(data, gameId) {
         clientID: p.clientID ?? null,
         // stable across games, public by design (the API prints it for everyone)
         publicID: typeof p.publicID === "string" ? p.publicID : null,
+        // The team slot the server stamps on each player - only in MATCHMADE team
+        // games (PlayerSchema.teamIndex, OpenFront v0.34.10); private lobbies,
+        // where tournaments are played, and older records have none (null). The
+        // tournament page groups teams by it when present, else by clan tags.
+        teamIndex: Number.isInteger(p.teamIndex) && p.teamIndex >= 0 && p.teamIndex < 256 ? p.teamIndex : null,
         // No stats object at all = joined the lobby but never spawned or acted.
         // Such a player has no killedAt either, so without this flag they would
         // rank as a survivor.
@@ -839,12 +981,19 @@ function onMessage(msg, _sender, sendResponse) {
     lastReport = { ...msg.detail, url: msg.url, at: Date.now() };
     return false;
   }
+  // Every asynchronous answer below responds, also when something throws: a
+  // caller left without sendResponse waits forever.
+  const failure = (err) => ({ found: false, reason: "error", error: String(err?.message ?? err) });
   if (msg?.type === "clanLeaderboard") {
-    lookupClanLeaderboard().then(sendResponse);
+    lookupClanLeaderboard().catch(failure).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "clanTable") {
+    lookupClanTable(msg.week).catch(failure).then(sendResponse);
     return true;
   }
   if (msg?.type === "clan") {
-    lookupClan(String(msg.tag ?? "")).then(sendResponse);
+    lookupClan(String(msg.tag ?? "")).catch(failure).then(sendResponse);
     return true;
   }
   if (msg?.type === "gameRecord") {
@@ -874,6 +1023,24 @@ function onMessage(msg, _sender, sendResponse) {
     chrome.tabs.create({ url: chrome.runtime.getURL("src/popup.html") });
     return false;
   }
+  if (msg?.type === "openPage") {
+    // The extension's own tool pages (popup "Tools" tab); nothing else can be opened this way.
+    const PAGES = { overlay: "src/overlay.html", clans: "src/clans.html", tournament: "src/tournament.html" };
+    // own keys only: "constructor", "toString" & co. are not pages
+    const page = typeof msg.page === "string" && Object.hasOwn(PAGES, msg.page) && typeof PAGES[msg.page] === "string" ? PAGES[msg.page] : null;
+    const hash = typeof msg.hash === "string" && /^#[\w=&%.-]{0,200}$/.test(msg.hash) ? msg.hash : "";
+    if (page && msg.page === "overlay") {
+      // The stream overlay gets a small window of its own (no permission needed) for
+      // OBS' Window Capture, on green for a chroma key, settings panel open. The
+      // launcher has no windows: there it opens in the browser, where the page
+      // offers its Browser Source address instead.
+      const url = chrome.runtime.getURL(`${page}?bg=green&edit=1`) + hash;
+      if (typeof chrome.windows?.create === "function") {
+        chrome.windows.create({ url, type: "popup", width: 680, height: 860 }).catch(() => chrome.tabs.create({ url }));
+      } else chrome.tabs.create({ url: chrome.runtime.getURL(`${page}?bg=dark&edit=1`) + hash });
+    } else if (page) chrome.tabs.create({ url: chrome.runtime.getURL(page) + hash });
+    return false;
+  }
   if (msg?.type === "openWelcome") {
     chrome.tabs.create({ url: chrome.runtime.getURL("src/welcome.html") });
     return false;
@@ -901,21 +1068,31 @@ function onMessage(msg, _sender, sendResponse) {
   }
   if (msg?.type === "lookup") {
     const usernames = Array.isArray(msg.usernames) ? msg.usernames : [];
+    // one failed name answers "error" for that name; the reply always comes
     Promise.all(
       usernames.map((username) =>
-        lookup(username, msg.fresh === true).then((value) => [username, value]),
+        lookup(String(username), msg.fresh === true)
+          .catch(failure)
+          .then((value) => [username, value]),
       ),
-    ).then((entries) => sendResponse(Object.fromEntries(entries)));
+    )
+      .then((entries) => sendResponse(Object.fromEntries(entries)))
+      .catch((err) => sendResponse(Object.fromEntries(usernames.map((n) => [n, failure(err)]))));
     return true;
   }
   if (msg?.type === "clearCache") {
+    // the rank cache and the Recruits index built from it
     memoryCache.clear();
-    chrome.storage.local.get(null).then((all) => {
-      const keys = Object.keys(all).filter((k) => k.startsWith(CACHE_PREFIX));
-      chrome.storage.local
-        .remove(keys)
-        .then(() => sendResponse({ cleared: keys.length }));
-    });
+    recruitPending.length = 0;
+    clearTimeout(recruitTimer);
+    recruitTimer = null;
+    recruitWrite
+      .then(() => chrome.storage.local.get(null))
+      .then((all) => {
+        const keys = Object.keys(all ?? {}).filter((k) => k.startsWith(CACHE_PREFIX));
+        return chrome.storage.local.remove([...keys, OFR_CLAN_LOGIC.RECRUIT_KEY]).then(() => keys.length);
+      })
+      .then((n) => sendResponse({ cleared: n }), (err) => sendResponse({ cleared: 0, error: String(err?.message ?? err) }));
     return true;
   }
   return false;
@@ -923,7 +1100,7 @@ function onMessage(msg, _sender, sendResponse) {
 
 // Lookups leave the browser (ofstats, OpenFront's game API), so they wait for
 // the user's agreement (src/welcome.html). Everything else is local.
-const LOOKUP_MESSAGES = new Set(["lookup", "clan", "clanLeaderboard", "gameRecord"]);
+const LOOKUP_MESSAGES = new Set(["lookup", "clan", "clanLeaderboard", "clanTable", "gameRecord"]);
 let dataConsent = null; // null until storage has been read
 const consentReady = chrome.storage.sync
   .get({ dataConsent: false })

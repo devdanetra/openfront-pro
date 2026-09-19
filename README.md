@@ -12,18 +12,29 @@ hover panel during a game and on the in-game leaderboard.
 
 ## Screenshots
 
-![Rank badges next to every player in the lobby, with lobby strength summary](store/screenshot-1.png)
+![Rank badges next to every player in a lobby, with the lobby summary, a clan chip and the map preview](store/screenshot-1.png)
 
 <table>
   <tr>
-    <td width="50%"><img src="store/screenshot-2.png" alt="Stats dashboard: world rank, win rate, recent form and trends"></td>
-    <td width="50%"><img src="store/screenshot-3.png" alt="Game recap: placement, survival curve, lobby comparison and share image"></td>
+    <td width="50%"><img src="store/screenshot-2.png" alt="Stats dashboard: world rank, win rate, last ten games, win streak and rank on every map"></td>
+    <td width="50%"><img src="store/screenshot-3.png" alt="Post-game recap: Summary, Graphs and Timelapse tabs"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="store/screenshot-4.png" alt="Themes applied to the extension and the site: Neon, Pastel, Tactical, High contrast"></td>
-    <td width="50%"><img src="store/screenshot-5.png" alt="Sidebar website layout"></td>
+    <td width="50%"><img src="store/screenshot-4.png" alt="The nine themes side by side: badges, lobby summary and lobby chart"></td>
+    <td width="50%"><img src="store/screenshot-5.png" alt="Stream overlay, clan hub leaderboard, tournament bracket and tournament results image"></td>
   </tr>
 </table>
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/img/overlay.png" alt="Stream overlay cards (rank, live game) over a made-up game map"><br><sub>Stream overlay</sub></td>
+    <td width="33%"><img src="docs/img/clan-hub.png" alt="Clan hub: weekly leaderboard with movers"><br><sub>Clan hub</sub></td>
+    <td width="33%"><img src="docs/img/tournament.png" alt="Tournament page: an eight-player bracket"><br><sub>Tournaments</sub></td>
+  </tr>
+</table>
+
+<sub>Lobby players, the game map behind the overlay and the timelapse frames
+are made up; dashboard, clan and tournament data come from public records.</sub>
 
 ## Install
 
@@ -330,7 +341,125 @@ request each.
 strongest first. Clicking a chip, or opening the dashboard for a tagged player,
 adds a clan section from ofstats' `/clans/<TAG>`: win-rate rings (all games,
 team, stacked, recent), members with the share active this month, and the top
-members' wins as bars.
+members' wins as bars. Its **Clan hub ↗** link opens that clan in the hub.
+
+## Clan hub
+
+A full page of its own (`src/clans.html`, from the popup's *Tools* tab or the
+dashboard's clan section; `#tag=LUX` opens a clan), graphics first with the
+exact figures on hover:
+
+- **Leaderboard** - ofstats' weekly top 50 by points: rank, the change since
+  last week, points, stacked win rate (tick: all games), games, members who
+  played that week, and a 12-week rank line for the clans in ofstats'
+  timeline. Week arrows go back up to a year; the biggest climbers and fallers,
+  and clans new to the top 50, sit above it.
+- **Clan** - win-rate rings (all, team, stacked with ofstats' average-stack
+  tick, recent), points per week for 12 weeks, win rate by stack size and by
+  mode, then members: how many are active, the average member percentile, the
+  members by rank band, and a row per member (percentile badge, win rate,
+  games, last played) that opens into a mini profile with an ofstats.io link.
+  Best maps are summed from the members looked up.
+- **Compare** - two clans side by side (mirrored bars: points, rank, win rates,
+  members, active share, average member percentile, games), both weekly point
+  lines, and a head-to-head from games both clans were in. That comes only
+  from what is visible - each clan's 20 latest games on ofstats (with the
+  winner's name) and the last 60 games of each looked-up member (with their
+  own result) - and a game whose result cannot be told is marked so. In team
+  games a side's result rests on the members looked up: a clan split over two
+  teams, with its winners not among them, can be miscounted.
+- **Recruits** - strong players without a clan tag, filtered by percentile,
+  last game and modes played, sorted by rank, activity or games. The list
+  comes **only from players this browser has already looked up**: in your
+  lobbies and games, in recaps, and names typed into the dashboard's search or
+  *Compare* box. The worker keeps a small index for it in `storage.local`
+  (`recruitIndex`: one slim record per untagged, ranked player - name,
+  percentile, games, wins, last game, games per mode - at most 500, the most
+  recently looked up, none older than 60 days; "Clear cached ranks" empties
+  it). The page reads that key only and sends nothing.
+
+What it asks ofstats, through the worker (the consent gate, queue and cache
+every lookup uses; with lookups not agreed the page shows a button to the
+first-run page and sends nothing): `/clans?limit=50[&week=YYYY-Www]` (new
+worker message `clanTable`, the week shown and the one before), `/clans/<TAG>`
+per clan opened or compared, and `/players/<[TAG] name>` for members, six at a
+time: 24 on opening a clan (all 50 of ofstats' first page on request), 12 per
+clan in Compare. A member whose lookup gets no answer shows "offline", with a
+Retry. In streamer mode your own name shows as "You"; the hub learns it from
+openfront.io, where the extension notes it locally (`selfStatsName`) whenever
+it reads your name. Until then streamer mode hides every name in the hub, with
+a banner saying why. The hub follows the popup's *Everything on / off* switch.
+`node tools/test-clans.mjs` tests weeks, movers, the recruit index and
+filtering, the comparison and head-to-head maths, and the worker (the
+`clanTable` route, the start-up purge of expired cache entries, lookups that
+still answer when storage is full); `node tools/shot-clans.mjs` screenshots
+every view through the launcher.
+
+## Tournaments
+
+A page for organisers (`src/tournament.html`, popup -> *Tools* ->
+*Tournaments*), with no server anywhere: create a tournament, paste each game's
+id or link once it is played (`https://openfront.io/game/<id>`, `#join=<id>`
+or the bare id), and it reads OpenFront's public record of each game and
+works out the rest.
+
+- **Formats:** points league / round robin (with a head-to-head grid),
+  single-elimination bracket (seeded by the order you list, byes for the top
+  seeds, winners advance from recorded games, any match can be set by hand),
+  and a best-of-N series between two sides.
+- **Participants:** players (matched by name, case-insensitive; a clan tag
+  only breaks ties between namesakes) or teams and clans (matched by clan tag
+  or by listed members). They can be picked from a game's players or clan
+  tags, and from its team slots where the record has them - only matchmade
+  team games do (OpenFront's server stamps `teamIndex` there); private
+  lobbies, where tournaments are played, do not. Players a game has that
+  nobody claims are listed on that game so you can assign them (or say "not
+  in tournament"); two participants claiming one player (namesakes such as
+  "Bob" and "bob" included) is never guessed. Hand-set bracket results and
+  game pins name the two players, not a bracket position, so reseeding never
+  hands them to someone else.
+- **Scoring:** points for a win, a placement table and points per player
+  conquered; presets *FFA points* (10/7/5/4/3/2/1 + 1 per conquest) and *Team
+  wins only*. Places count among the tournament's participants in that game,
+  so strangers or bots in the lobby change nothing; tied places share their
+  points. Ties in the standings: wins, then average place, then head-to-head.
+- **Results:** a 2x PNG for Discord (standings, bracket or series, in your
+  theme) and *Copy results text*.
+- **Saved** in `chrome.storage.local`, one key per tournament
+  (`tournament:<id>` plus the order in `tournamentIdx`, at most 30; the old
+  single `tournaments` list is moved over once), so two open tabs editing
+  different tournaments never overwrite each other and the same one merges by
+  its last-change stamp. A saved tournament that fails validation is kept
+  untouched and listed as damaged (export or delete it), never dropped. A
+  failed save shows a banner; when storage is full the record cache is
+  emptied (except the open tournament's) and the save retried. Finished
+  games' records are cached (`tRec:<id>`, LRU, 250 games / ~3 MB, the open
+  tournament's never evicted), so reopening a tournament asks OpenFront for
+  nothing.
+- **Shared** as a `.json` file or a **share code**: `#t=<base64url of
+  deflate-raw JSON>` carrying the whole tournament (up to 6000 characters;
+  bigger ones say so and point to the file). The other organiser pastes the
+  code under *Import*. That is the way to share: `tournament.html` is not
+  web-accessible, so a `chrome-extension://…/tournament.html#t=…` link clicked
+  on a web page (Discord in the browser included) is blocked by Chrome - it
+  only opens when pasted into the address bar of a Chrome with the same
+  extension id (the Share tab offers that link too, in the extension only).
+  Under the Steam launcher only the code is ever copied (the page's address
+  there holds the launcher's secret token). Files and codes are validated
+  strictly (types, lengths, counts, no control or bidi characters, a cap on
+  the unpacked size) and everything in them is shown as text only.
+
+Game lookups are the same `gameRecord` message the recap uses, so they wait
+for the first-run agreement (the page shows a button to it until then). They
+go out two at a time, at least 400 ms apart, and back off (2 s, 4 s, 8 s) when
+OpenFront answers 429; more than 20 records due at once (a big import, a
+crafted code) wait for a click. Game ids follow OpenFront's shape (8-10
+letters and digits; a bare word must also contain a digit or mixed case, so a
+pasted chat line adds nothing). A game not published yet gets *Retry*.
+`node tools/test-tournament.mjs` tests link parsing, matching, scoring,
+tie-breaks, the bracket, share codes, storage merging and migration, and the
+validation over the real records in `.recap/`; `node tools/shot-tournament.mjs`
+screenshots every view through the launcher.
 
 ## Game recap
 
@@ -424,6 +553,62 @@ every other frame and slow down), and are thrown away with the next game or when
 the tab closes. Nothing is uploaded: saving writes a file on your computer.
 Streamer mode leaves other players' names out of the strip. Switch: *Game ->
 Timelapse*.
+
+## Streamer overlay
+
+An OBS overlay page (`src/overlay.html`), made of cards rather than text:
+
+- **Rank** - your world-rank gauge (with today's drift as an arrow inside it),
+  your win streak as flames and today's games as pips (a win filled), wins/games.
+- **Live game** - state (live / spawning / out / game over), map and mode, the
+  game clock, your place, your land share, humans alive, and bars for the three
+  biggest empires against yours (no names).
+- **Recap** - when the game's record is in, the recap's share card for a set
+  number of seconds (then the live card of the next game takes over).
+
+**Browser extension.** Settings -> *Tools* -> *Streamer overlay* -> **Open** opens
+it in a small window of its own on green. In OBS: *Window Capture* -> that
+window -> filter *Chroma Key* (green). Its settings panel (the gear on hover,
+or `?edit=1`) picks the cards, corner, backdrop, size, how long the recap
+stays, whether your name shows, and has sample data for placing it; the choices
+live in the address, so a reload keeps them. OBS cannot load extension pages
+itself; the panel's *Copy address* is for browser-source plugins that can.
+Keep the window uncovered: Chrome stops painting a window that is fully hidden.
+
+**Steam launcher.** The launcher prints the overlay's address (and its
+settings page has *Copy* under Tools): OBS -> *Browser Source* -> that address,
+1920x1080, backdrop transparent. **The address contains the launcher's secret
+key: never show it on stream or share it.** It changes every time the launcher
+starts, so paste the new one into OBS after a restart.
+
+Options in the address: `w=rank,live,recap` (which cards, in that order),
+`bg=transparent|green|dark`, `pos=tl|tr|bl|br`, `scale=0.5..3`, `recap=20`
+(seconds; `0` = until the next game), `name=0` (never show your name),
+`streamer=1`. **Streamer mode** always wins: with it on, neither your name nor
+your rank is shown (no gauge, no drift arrow; the streak and today's games
+stay), as everywhere else in the extension. With streamer mode or `name=0` the
+recap card is drawn masked too ("You", no rank); an unmasked card is never shown
+on such a page.
+
+How it works, all on this computer: while the overlay page is open it writes a
+heartbeat (`overlayEnabled`, a time, every 20 s; `0` when it closes, and
+`overlayMask` while it hides your name) to `chrome.storage.local`. Only while
+that is fresh (2.5 minutes) does the openfront.io tab publish: your ofstats name
+(`overlaySelf`), the running game (`overlayLive`: counts and shares, no names,
+from `page-probe.js`, read-only; written when it changes - the clock does not
+count, the page runs it - and every 4 s otherwise; removed when you leave the
+game) and the recap card once per game (`overlayRecap`, a 1200x630 PNG). With
+several openfront.io tabs open, one publishes the game at a time: the one that
+started, or the one on screen. A few seconds after the overlay page is gone the
+tab removes all of it. The page reacts to storage changes and asks the worker
+for your own rank like the home card does (right after a game, bypassing the
+10-minute cache). The recap card needs the recap on and rank lookups agreed,
+like the recap itself (closing the recap panel does not stop the card; a
+replay's end screen never makes one). The openfront.io page can see that an
+overlay is open (`data-ofr-overlay="on"` on its root element). The timelapse clip is
+not on the overlay: its frames stay in the game tab. `node tools/test-overlay.mjs`
+checks the page logic; `node tools/shot-overlay.mjs` runs the whole path against
+a stand-in game through the launcher and takes the screenshots.
 
 ## Chat (beta, off by default)
 
@@ -685,6 +870,12 @@ src/dashboard.js    Pro dashboard and home card, drawn with charts.js (exact
                     figures in folded Numbers boxes)
 src/recap.js        game recap: analysis, panel, share image
 src/welcome.html/js first-run disclosure and consent
+src/clans.html/js   clan hub: weekly table, clan page, clan vs clan, recruits
+src/clans-logic.js  the clan hub's pure logic: weeks, movers, comparison, head-to-head, recruits
+src/overlay.html/js OBS stream overlay (rank, live game, recap card)
+src/overlay-core.js the overlay's pure logic: options, checks, what shows
+src/tournament.html/js/css  tournaments: setup, games, standings, bracket, series, share image
+src/tournament-core.js      the tournaments' pure logic: links, matching, scoring, bracket, share links, validation
 src/chat.js         chat panel (closed shadow root), muting, filter, presence, Team tab
 src/team.js         team channel: teammate verification, trust, encryption (worker)
 src/timelapse.js    timelapse frames, preview, WebM and GIF export
@@ -693,7 +884,7 @@ src/vendor/         nostr-crypto.js - vendored @noble Schnorr + ECDH + SHA-256
 src/dashboard.css   dashboard, home card and settings overlay styling
 src/site-layouts.css   the three website layout templates
 src/page-themes.css    GENERATED from themes.js: OpenFront's palette per theme
-src/page-probe.js   MAIN-world probe: map preview, timelapse frames, team roster/emoji feed
+src/page-probe.js   MAIN-world probe: map preview, timelapse frames, team roster/emoji feed, overlay figures
 src/map-viewer.js   full-screen zoomable terrain view
 icons/              extension and notification icons
 sounds/alert.wav    watchlist alert
@@ -705,6 +896,13 @@ tools/calibrate.mjs re-derives the percentile table from live data
 tools/gen-page-themes.mjs  regenerates src/page-themes.css, checks theme consistency
 tools/check-theme-contrast.mjs  contrast and band-distinctness check for every theme
 tools/test-recap.mjs       recap analysis over real game records, in node
+tools/test-overlay.mjs     stream overlay logic, in node
+tools/shot-overlay.mjs     stream overlay end to end (stand-in game + launcher) and screenshots
+tools/test-clans.mjs       clan hub logic and the worker's clanTable route, in node
+tools/shot-clans.mjs       clan hub screenshots with real ofstats data, through the launcher
+tools/test-tournament.mjs  tournament logic over the real records in .recap/, in node
+tools/shot-tournament.mjs  tournament screenshots (made-up tournaments from .recap/), through the launcher
+tools/tournament-fixtures.mjs  shared by those two: loads the logic, the records and the demo tournaments
 tools/test-chat.mjs        chat: event rules, text hygiene, --live relay round trip
 tools/test-team.mjs        team channel: pairings, trust, encryption, and the attacks
 tools/test-gif.mjs         GIF encoder against an independent decoder

@@ -13,6 +13,8 @@
 //                         into a test container (dash-homecard-stats.png); the
 //                         page's own card stays as it is
 //   DASH_SESSION=1        show a made-up "today's session" (restored after)
+//   DASH_SESSION_PCT=0.9,0.7  its rank before,after (default 3.4,2.6)
+//   DASH_SCALE=2          device pixel ratio (default 1)
 import fs from "node:fs";
 
 const PORT = Number(process.env.CDP_PORT ?? 9345);
@@ -25,6 +27,8 @@ const COMPARE = process.env.DASH_COMPARE ?? null;
 const NUMBERS = process.env.DASH_NUMBERS === "1";
 const HOME = process.env.DASH_HOME === "1";
 const SESSION = process.env.DASH_SESSION === "1";
+const SCALE = Number(process.env.DASH_SCALE ?? 1);
+const [PCT_BEFORE, PCT_AFTER] = (process.env.DASH_SESSION_PCT ?? "3.4,2.6").split(",").map(Number);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -65,7 +69,7 @@ const shotEl = async (name, selector) => {
   fs.writeFileSync(`${OUT}/${name}.png`, Buffer.from(res.result.data, "base64"));
   console.log(" ", `${name}.png`, `${Math.round(box.width)}x${Math.round(box.height)}`);
 };
-const metrics = (height) => send("Emulation.setDeviceMetricsOverride", { width: WIDTH, height, deviceScaleFactor: 1, mobile: false });
+const metrics = (height) => send("Emulation.setDeviceMetricsOverride", { width: WIDTH, height, deviceScaleFactor: SCALE, mobile: false });
 
 await send("Runtime.enable");
 await metrics(900);
@@ -80,13 +84,13 @@ if (SESSION) {
   const now = Date.now();
   const sample = {
     day: new Date().toDateString(),
-    startPct: 3.4,
+    startPct: PCT_BEFORE,
     games: [
       { gameId: "shot1", place: 4, total: 40, won: false, at: now - 5 * 36e5 },
       { gameId: "shot2", place: 1, total: 28, won: true, at: now - 4 * 36e5 },
       { gameId: "shot3", place: null, total: 60, won: false, at: now - 3 * 36e5 },
       { gameId: "shot4", place: 12, total: 35, won: false, at: now - 2 * 36e5 },
-      { gameId: "shot5", place: null, total: 50, won: true, at: now - 36e5, pctBefore: 3.4, pctAfter: 2.6 },
+      { gameId: "shot5", place: null, total: 50, won: true, at: now - 36e5, pctBefore: PCT_BEFORE, pctAfter: PCT_AFTER },
     ],
   };
   await iso(`chrome.storage.local.set({ session: ${JSON.stringify(sample)} })`);

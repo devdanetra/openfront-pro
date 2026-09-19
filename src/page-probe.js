@@ -18,7 +18,7 @@
 (() => {
   // Versioned: after an extension update in an open tab the old probe is still here,
   // and a plain "already there" flag would keep the new one (and what it adds) out.
-  const VERSION = 3;
+  const VERSION = 4; // 4: stream overlay figures
   if ((window.__ofrProbeVersion ?? 0) >= VERSION) return;
   window.__ofrProbeVersion = VERSION;
   window.__ofrProbe = true;
@@ -376,6 +376,53 @@
     );
   }
   every(lapseFrame, 1000);
+
+  // ---- stream overlay: a few live figures once a second -------------------------------
+  // Only while the extension asks (data-ofr-overlay="on": its overlay page is open).
+  // Counts and land shares only - no names - read like the timelapse above.
+  function overlayStats() {
+    if (document.documentElement.dataset.ofrOverlay !== "on") return;
+    const game = liveGame();
+    const gameId = call(game, "gameID");
+    if (!game || typeof gameId !== "string") return;
+    const tick = Number(call(game, "ticks")) || 0;
+    const myId = call(call(game, "myPlayer"), "smallID");
+    const players = call(game, "playerViews") ?? call(game, "players") ?? [];
+    let humans = 0;
+    let humansTotal = 0;
+    const board = [];
+    for (const p of players) {
+      const id = call(p, "smallID");
+      if (!(id > 0)) continue;
+      const human = call(p, "type") === "HUMAN";
+      if (human) humansTotal++;
+      if (call(p, "isAlive") !== true) continue;
+      if (human) humans++;
+      board.push({ tiles: Number(call(p, "numTilesOwned")) || 0, me: id === myId || call(p, "isMe") === true });
+    }
+    board.sort((a, b) => b.tiles - a.tiles);
+    const land = Number(call(game, "numLandTiles")) || 0;
+    const mine = board.findIndex((b) => b.me);
+    let map = "";
+    try {
+      map = String(game.config().gameConfig().gameMap ?? "").slice(0, 40);
+    } catch {
+      // not readable in this build
+    }
+    post("overlay-stats", {
+      gameId,
+      seconds: Number(call(game, "elapsedGameSeconds")) || Math.round(tick / 10),
+      spawn: call(game, "inSpawnPhase") === true,
+      humans,
+      humansTotal,
+      players: board.length,
+      place: mine >= 0 ? mine + 1 : null,
+      share: mine >= 0 && land ? board[mine].tiles / land : null,
+      top: board.slice(0, 3).map((b) => ({ share: land ? b.tiles / land : 0, me: b.me })),
+      map,
+    });
+  }
+  every(overlayStats, 1000);
 
   // ---- team chat: my teammates, and the emoji messages we send -------------------------
   // Teammates prove who they are to each other's extension by sending each other

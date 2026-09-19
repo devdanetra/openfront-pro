@@ -1,7 +1,7 @@
 // Dev tool. Screenshots every tab of the settings popup, served by the launcher's
 // local server (so chrome.* works without installing anything), in a headless
 // Chrome driven over the DevTools protocol.
-//   node tools/shot-popup.mjs <outDir> [theme]
+//   node tools/shot-popup.mjs <outDir> [theme]     (POPUP_TABS=look,tools env: only these tabs)
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -50,7 +50,7 @@ ws.addEventListener("message", (ev) => {
 const send = (method, params = {}) => new Promise((resolve) => { const n = ++id; pending.set(n, resolve); ws.send(JSON.stringify({ id: n, method, params })); });
 
 await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 860, deviceScaleFactor: 2, mobile: false });
-for (const tab of ["look", "lobby", "game", "chat", "about"]) {
+for (const tab of (process.env.POPUP_TABS ?? "look,lobby,game,chat,tools,about").split(",")) {
   await send("Page.navigate", { url: `${base}/src/popup.html#${tab}` });
   await wait(1800);
   const shot = await send("Page.captureScreenshot", { format: "png" });

@@ -966,6 +966,21 @@
       sec.append(clan?.reason === "error" ? stateEl("error", null, { title: "ofstats.io unreachable", compact: true, hook: "ofr-dash-empty", tip: `Couldn’t load the clan from ofstats.io. Try again in a little while.${clan.error ? `\n${clan.error}` : ""}` }) : stateEl("empty", "No clan record", { compact: true, hook: "ofr-dash-empty", tip: "No clan record on ofstats.io for this tag." }));
       return sec;
     }
+    // "Clan hub" (src/clans.html, an extension page) for this clan. A person's
+    // click only; it also leaves your ofstats name in local storage, so the hub
+    // can say "You" in streamer mode and keep you out of its recruits.
+    const hubLink = el("a", "ofr-dash-link", "Clan hub ↗");
+    hubLink.href = "#";
+    hubLink.title = `Open [${tag}] in the clan hub`;
+    hubLink.style.marginLeft = "10px";
+    hubLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!e.isTrusted) return;
+      const mine = ownName();
+      if (mine) chrome.storage.local.set({ selfStatsName: mine }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "openPage", page: "clans", hash: `#tag=${tag}` }).catch(() => {});
+    });
+    sec.firstChild.append(hubLink);
     const rings = el("div", "ofr-moderings");
     const addRing = (word, wins, games, extra = "") => {
       if (!(games > 0)) return;
@@ -1547,6 +1562,9 @@
     }
     card.dataset.ofrFor = key;
     card.dataset.ofrAt = String(Date.now());
+    // The clan hub (an extension page) cannot read OpenFront's localStorage: it
+    // gets your ofstats name from here, locally, to hide it in streamer mode.
+    if (name) chrome.storage.local.set({ selfStatsName: name }).catch(() => {});
 
     const bar = el("div", "ofr-home-bar");
     bar.append(el("span", "ofr-home-brand", "OpenFront Pro"));

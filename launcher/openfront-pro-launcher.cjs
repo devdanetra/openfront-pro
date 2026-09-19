@@ -122,8 +122,12 @@ fs.writeFileSync(LOCK_FILE, String(process.pid));
 store.session = bare(); // memory only, like chrome.storage.session
 let saveTimer = null;
 // The rank cache ("ofs<N>:" keys, ~16 KB per player, minutes of life) stays in
-// memory: persisting it made the file grow by a megabyte per lobby.
-const persisted = () => JSON.stringify({ sync: store.sync, local: Object.fromEntries(Object.entries(store.local).filter(([k]) => !/^ofs\d+:/.test(k))) });
+// memory: persisting it made the file grow by a megabyte per lobby. So does what the
+// game window hands the stream overlay (the live state every few seconds, the recap card).
+const VOLATILE = /^(ofs\d+:|overlay(Live|Recap|Enabled|Self|Mask)$)/;
+// a change to memory-only keys alone never touches the file
+const memoryOnly = (area, keys) => area === "session" || (area === "local" && keys.every((k) => VOLATILE.test(k)));
+const persisted = () => JSON.stringify({ sync: store.sync, local: Object.fromEntries(Object.entries(store.local).filter(([k]) => !VOLATILE.test(k))) });
 const writeNow = () => {
   const tmp = `${STORE_FILE}.tmp`;
   fs.writeFileSync(tmp, persisted());
@@ -188,7 +192,8 @@ function storageSet(area, items) {
     store[area][k] = clone(v);
     changes[k] = { oldValue, newValue: clone(v) };
   }
-  if (area !== "session") save();
+  if (!Object.keys(changes).length) return; // nothing changed: no write, no event
+  if (!memoryOnly(area, Object.keys(changes))) save(); // no disk write for the overlay's traffic
   emitChange(area, changes);
 }
 function storageRemove(area, keys) {
@@ -198,7 +203,8 @@ function storageRemove(area, keys) {
     changes[k] = { oldValue: store[area][k] };
     delete store[area][k];
   }
-  if (area !== "session") save();
+  if (!Object.keys(changes).length) return;
+  if (!memoryOnly(area, Object.keys(changes))) save();
   emitChange(area, changes);
 }
 const areaApi = (area) => ({
@@ -243,7 +249,9 @@ function openExternal(raw) {
 // The stand-in for chrome.* inside the popup / welcome pages (a normal browser tab).
 const PAGE_SHIM = `(() => {
   const base = "/" + location.pathname.split("/")[1];
-  const api = (op, body) => fetch(base + "/__api", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op, ...body }) }).then((r) => r.json()).then((r) => r.value);
+  // keepalive (small bodies only, the browser caps it): a write made while the page
+  // closes - the stream overlay's "closed" - still gets out
+  const api = (op, body) => { const data = JSON.stringify({ op, ...body }); return fetch(base + "/__api", { method: "POST", headers: { "content-type": "application/json" }, body: data, keepalive: data.length < 16000 }).then((r) => r.json()).then((r) => r.value); };
   const changed = [];
   const area = (name) => ({
     get: (keys) => api("storage.get", { area: name, keys: keys === undefined ? null : keys }),
@@ -779,6 +787,10 @@ function steamExe() {
 }
 
 log(`OpenFront Pro launcher ${manifest.version} - settings page: ${httpBase}/src/popup.html`);
+// The stream overlay as an OBS "Browser Source". The address carries the secret key
+// and changes with every start; its page (?edit=1) has the same address with a Copy button.
+log(`stream overlay for OBS (Browser Source, 1920x1080) - SECRET, never show it on stream or share it:`);
+log(`    ${httpBase}/src/overlay.html?bg=transparent`);
 if ((await targets()) === null && !args.attach) {
   const steam = steamExe();
   if (steam && fs.existsSync(steam)) {

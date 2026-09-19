@@ -140,6 +140,7 @@
       <button type="button" class="ofr-tab" role="tab" data-tab="lobby">Lobby</button>
       <button type="button" class="ofr-tab" role="tab" data-tab="game">Game</button>
       <button type="button" class="ofr-tab" role="tab" data-tab="chat">Chat</button>
+      <button type="button" class="ofr-tab" role="tab" data-tab="tools">Tools</button>
       <button type="button" class="ofr-tab" role="tab" data-tab="about">About</button>
     </div>
 
@@ -253,6 +254,16 @@
         <div class="row"><button id="chat-agree" class="ofr-btn ofr-btn-primary" type="button">I agree - turn chat on</button><button id="chat-cancel" class="ofr-btn" type="button">Cancel</button></div>
       </div>
       <p class="warn-note">Always open in the lobby, after the game and during team games. No server of ours: the relays see your IP address and what you send; other players see your name, your text and a throw-away key for that game (in team games also the player slot it claims and whom it verified), never your IP address.</p>
+    </div>
+
+    <div class="pane" data-pane="tools">
+      <h2 class="ofr-eyebrow">Tools</h2>
+      <div class="card ofr-card tools">
+        <div class="field"><span class="txt"><b>Streamer overlay</b><small>Rank, session and live game for OBS</small></span><button type="button" class="ofr-btn ofr-btn-sm" data-open="overlay">Open</button></div>
+        <div class="field" id="overlay-obs" hidden><span class="txt"><b>OBS address</b><small>Browser Source, 1920x1080. Contains the launcher's secret key: never show it on stream or share it.</small></span><button type="button" class="ofr-btn ofr-btn-sm" id="overlay-obs-copy">Copy</button></div>
+        <div class="field"><span class="txt"><b>Clan hub</b><small>Clans, members, trends, recruits</small></span><button type="button" class="ofr-btn ofr-btn-sm" data-open="clans">Open</button></div>
+        <div class="field"><span class="txt"><b>Tournaments</b><small>Brackets and standings from game ids</small></span><button type="button" class="ofr-btn ofr-btn-sm" data-open="tournament">Open</button></div>
+      </div>
     </div>
 
     <div class="pane" data-pane="about">
