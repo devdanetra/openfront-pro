@@ -10,7 +10,10 @@
 //   - during a game, the client's GameView: the tile-ownership buffer, terrain
 //     and every player's name, colour and land share (timelapse, only while
 //     data-ofr-lapse is "on"), and my team's roster and the emoji messages
-//     between teammates (team chat, only while data-ofr-team is "on").
+//     between teammates (team chat, only while data-ofr-team is "on"), a few
+//     counts for the stream overlay (only while data-ofr-overlay is "on") and,
+//     when watching a game, every player's shown name, team, land share and
+//     state (observer mode, only while data-ofr-caster is "on").
 //
 // All of it is read-only: it never writes game state and sends no input.
 // Lobby and game state go out on data attributes, the game views with
@@ -18,7 +21,7 @@
 (() => {
   // Versioned: after an extension update in an open tab the old probe is still here,
   // and a plain "already there" flag would keep the new one (and what it adds) out.
-  const VERSION = 4; // 4: stream overlay figures
+  const VERSION = 6; // 4: stream overlay figures; 5: observer mode (caster feed, spectator/over flags); 6: spectator = not on the roster (not isSpectator()), spawn-phase clock
   if ((window.__ofrProbeVersion ?? 0) >= VERSION) return;
   window.__ofrProbeVersion = VERSION;
   window.__ofrProbe = true;
@@ -176,6 +179,58 @@
   publish();
   every(publish, 1000);
 
+  const call = (o, m, ...a) => {
+    try {
+      return typeof o?.[m] === "function" ? o[m](...a) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Watching (a spectator's seat, or a replay) rather than playing. NOT the client's
+  // own GameView.isSpectator(): in OpenFront v0.34.10 that is
+  // `!myPlayer()?.isAlive() || isReplay()`, true for every PLAYER during the spawn
+  // phase (there is no PlayerView of yours until you spawn) and for a player who was
+  // eliminated. What really says "watching":
+  //   - a replay (Config.isReplay);
+  //   - Spectate picked in the lobby (Config.isIntentionalSpectator);
+  //   - this client not on the game's roster: the server freezes the players into
+  //     gameStartInfo.players at the start, and a spectator never has an entry there
+  //     (GameServer.ts). The client keeps that list on its worker
+  //     (WorkerClient.gameStartInfo) and keyed by client id in GameView._cosmetics.
+  // Without a readable roster: no PlayerView of mine once the spawn phase is over.
+  function rosterIds(game) {
+    try {
+      const players = game?.worker?.gameStartInfo?.players;
+      if (Array.isArray(players)) {
+        const ids = new Set();
+        for (const p of players) if (typeof p?.clientID === "string") ids.add(p.clientID);
+        return ids;
+      }
+      const cosmetics = game?._cosmetics;
+      if (cosmetics instanceof Map) return new Set([...cosmetics.keys()].filter((k) => typeof k === "string"));
+    } catch {
+      // not readable in this build
+    }
+    return null;
+  }
+  function watchingGame(game) {
+    const cfg = call(game, "config");
+    if (call(cfg, "isReplay") === true || call(cfg, "isIntentionalSpectator") === true) return true;
+    const cid = call(game, "myClientID");
+    const roster = typeof cid === "string" && cid ? rosterIds(game) : null;
+    if (roster && roster.size > 0) return !roster.has(cid);
+    if (call(game, "inSpawnPhase") !== false) return false; // spawning (or unknown): a player has no PlayerView yet
+    return (call(game, "myPlayer") ?? null) === null;
+  }
+  // The game clock: 0 through the spawn phase (GameView.elapsedGameSeconds), ticks
+  // only when the call is not there.
+  function gameSeconds(game) {
+    const s = call(game, "elapsedGameSeconds");
+    if (typeof s === "number" && Number.isFinite(s) && s >= 0) return s;
+    return Math.round((Number(call(game, "ticks")) || 0) / 10);
+  }
+
   // Whether a game is running in this tab and whether you are still in it. The
   // chat pauses while you are alive in a running free-for-all (a free-text side
   // channel there would be an unfair one), and opens again once you are out.
@@ -203,7 +258,20 @@
       } catch {
         // not readable in this build
       }
-      next = JSON.stringify({ running: true, spawn, alive, clientId, mode });
+      // Observer mode: watching (a spectator's seat, or a replay) rather than playing
+      // (watchingGame above - never the client's isSpectator()); and whether the game
+      // is over (sticky in the client). Read-only, like the rest.
+      let spectator = false;
+      let over = false;
+      let replay = false;
+      try {
+        replay = game.config?.()?.isReplay?.() === true;
+        spectator = replay || watchingGame(game);
+        over = game.gameOver?.() === true;
+      } catch {
+        // not readable in this build: playing, not over
+      }
+      next = JSON.stringify({ running: true, spawn, alive, clientId, mode, spectator, over, replay });
     }
     if ((document.documentElement.dataset[GAME_ATTR] ?? "") !== next) {
       if (next) document.documentElement.dataset[GAME_ATTR] = next;
@@ -220,14 +288,7 @@
   // None of it is secret - it is what the game already shows - but the page can
   // see those messages and any script in it can fake them. The other side checks
   // their shape only: a faked team feed can make a key look verified as a
-  // teammate (docs/TEAM-CHAT.md, "Out of scope").
-  const call = (o, m, ...a) => {
-    try {
-      return typeof o?.[m] === "function" ? o[m](...a) : undefined;
-    } catch {
-      return undefined;
-    }
-  };
+  // teammate (docs/TEAM-CHAT.md, "Out of scope"). (`call` is defined further up.)
   const liveGame = () => document.querySelector("player-panel")?.g ?? document.querySelector("win-modal")?.game ?? null;
   const post = (kind, data, transfer) => {
     try {
@@ -322,7 +383,8 @@
       const alive = call(p, "isAlive") === true;
       const human = call(p, "type") === "HUMAN";
       if (alive && human) aliveHumans++;
-      if (alive) board.push({ id, name: String(p?.static?.displayName ?? call(p, "displayName") ?? "").slice(0, 32), tiles: Number(call(p, "numTilesOwned")) || 0, me: call(p, "isMe") === true });
+      // the name the game shows (anonymised under OpenFront's "Hidden Names"), not the raw one
+      if (alive) board.push({ id, name: String(call(p, "displayName") ?? call(p, "name") ?? "").slice(0, 32), tiles: Number(call(p, "numTilesOwned")) || 0, me: call(p, "isMe") === true });
     }
 
     const px = lapse.image.data;
@@ -355,7 +417,7 @@
     board.sort((a, b) => b.tiles - a.tiles);
     const mine = board.find((b) => b.me) ?? null;
     const stats = {
-      seconds: Number(call(game, "elapsedGameSeconds")) || Math.round(tick / 10),
+      seconds: gameSeconds(game),
       aliveHumans,
       myShare: mine && land ? mine.tiles / land : null,
       top: board.slice(0, 3).map((b) => ({ name: b.name, share: land ? b.tiles / land : 0, rgb: colours.get(b.id), me: b.me })),
@@ -385,7 +447,6 @@
     const game = liveGame();
     const gameId = call(game, "gameID");
     if (!game || typeof gameId !== "string") return;
-    const tick = Number(call(game, "ticks")) || 0;
     const myId = call(call(game, "myPlayer"), "smallID");
     const players = call(game, "playerViews") ?? call(game, "players") ?? [];
     let humans = 0;
@@ -411,7 +472,7 @@
     }
     post("overlay-stats", {
       gameId,
-      seconds: Number(call(game, "elapsedGameSeconds")) || Math.round(tick / 10),
+      seconds: gameSeconds(game),
       spawn: call(game, "inSpawnPhase") === true,
       humans,
       humansTotal,
@@ -423,6 +484,72 @@
     });
   }
   every(overlayStats, 1000);
+
+  // ---- observer mode: every player's standing, once a second --------------------------
+  // Only while the extension asks (data-ofr-caster="on": you are watching a game - a
+  // spectator's seat or a replay - and its caster panel or overlay wants the data),
+  // and only while this client really is watching (watchingGame: never a player in
+  // the spawn phase or one who was eliminated). Names are the ones the game
+  // SHOWS (displayName / name, which the client anonymises when "Hidden Names" is
+  // on), never the raw p.static ones, so hidden names stay hidden.
+  function casterFeed() {
+    if (document.documentElement.dataset.ofrCaster !== "on") return;
+    const game = liveGame();
+    const gameId = call(game, "gameID");
+    if (!game || typeof gameId !== "string") return;
+    const replay = call(call(game, "config"), "isReplay") === true;
+    if (!replay && !watchingGame(game)) return;
+    const tick = Number(call(game, "ticks")) || 0;
+    const players = [];
+    for (const p of call(game, "playerViews") ?? call(game, "players") ?? []) {
+      const sid = call(p, "smallID");
+      if (!(Number.isInteger(sid) && sid > 0)) continue;
+      const type = call(p, "type");
+      const alive = call(p, "isAlive") === true;
+      const tiles = Number(call(p, "numTilesOwned")) || 0;
+      if (type === "BOT" && !(alive && tiles > 0)) continue; // hundreds of fallen bots say nothing
+      const name = call(p, "displayName") ?? call(p, "name");
+      const team = call(p, "team");
+      const rgb = call(call(p, "territoryColor"), "toRgb");
+      players.push({
+        sid,
+        name: typeof name === "string" ? name.slice(0, 48) : "",
+        team: typeof team === "string" ? team.slice(0, 40) : null,
+        tiles,
+        alive,
+        human: type === "HUMAN",
+        type: typeof type === "string" ? type : null,
+        rgb: rgb && Number.isFinite(rgb.r) ? [rgb.r, rgb.g, rgb.b] : null,
+      });
+    }
+    players.sort((a, b) => b.tiles - a.tiles);
+    let mode = "";
+    let teams = null;
+    let map = "";
+    try {
+      const cfg = game.config().gameConfig();
+      mode = String(cfg.gameMode ?? "").slice(0, 40);
+      map = String(cfg.gameMap ?? "").slice(0, 40);
+    } catch {
+      // not readable in this build
+    }
+    const pt = call(call(game, "config"), "playerTeams");
+    if (typeof pt === "number" || typeof pt === "string") teams = pt;
+    post("caster-state", {
+      gameId,
+      tick,
+      seconds: gameSeconds(game),
+      spawn: call(game, "inSpawnPhase") === true,
+      over: call(game, "gameOver") === true,
+      replay,
+      mode,
+      teams,
+      map,
+      land: Number(call(game, "numLandTiles")) || 0,
+      players: players.slice(0, 400),
+    });
+  }
+  every(casterFeed, 1000);
 
   // ---- team chat: my teammates, and the emoji messages we send -------------------------
   // Teammates prove who they are to each other's extension by sending each other

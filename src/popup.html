@@ -226,6 +226,10 @@
         <label><span class="txt"><b>Game recap</b><small>result, your numbers ranked in the lobby, graphs, awards, share image</small></span><input type="checkbox" id="showRecap" /></label>
         <label><span class="txt"><b>Timelapse</b><small>records the whole map during the game (while the recap is on); save it as a video or GIF from the recap. Stays in memory, never uploaded.</small></span><input type="checkbox" id="timelapse" /></label>
       </div>
+      <h2 class="ofr-eyebrow">Watching a game</h2>
+      <div class="card ofr-card">
+        <label><span class="txt"><b>Caster panel</b><small>when you watch a game (a spectator): leaderboard, teams, eliminations, clock. Names as the game shows them.</small></span><input type="checkbox" id="casterPanel" /></label>
+      </div>
       <h2 class="ofr-eyebrow">Streaming</h2>
       <div class="card ofr-card">
         <label><span class="txt"><b>Streamer mode</b><small>hides your own name and rank everywhere, chat included - except that in team games the team channel still announces your player slot, which anyone in that game can match to your name</small></span><input type="checkbox" id="streamerMode" /></label>
@@ -260,6 +264,7 @@
       <h2 class="ofr-eyebrow">Tools</h2>
       <div class="card ofr-card tools">
         <div class="field"><span class="txt"><b>Streamer overlay</b><small>Rank, session and live game for OBS</small></span><button type="button" class="ofr-btn ofr-btn-sm" data-open="overlay">Open</button></div>
+        <div class="field"><span class="txt"><b>Observer</b><small>Watch a game from its link, with a caster view</small></span><button type="button" class="ofr-btn ofr-btn-sm" data-open="observer">Open</button></div>
         <div class="field" id="overlay-obs" hidden><span class="txt"><b>OBS address</b><small>Browser Source, 1920x1080. Contains the launcher's secret key: never show it on stream or share it.</small></span><button type="button" class="ofr-btn ofr-btn-sm" id="overlay-obs-copy">Copy</button></div>
         <div class="field"><span class="txt"><b>Clan hub</b><small>Clans, members, trends, recruits</small></span><button type="button" class="ofr-btn ofr-btn-sm" data-open="clans">Open</button></div>
         <div class="field"><span class="txt"><b>Tournaments</b><small>Brackets and standings from game ids</small></span><button type="button" class="ofr-btn ofr-btn-sm" data-open="tournament">Open</button></div>

@@ -70,6 +70,7 @@ let settings = {
   autoCopyReport: false,
   dataConsent: false,
   timelapse: true,
+  casterPanel: true,
   chatEnabled: false,
   chatConsent: false,
   chatInFfa: false,
@@ -1931,7 +1932,30 @@ function readGameState() {
 // <overlay-pure> (tools/test-overlay.mjs runs this block in node)
 const OVERLAY_STALE_MS = 150000; // = OFR_OVERLAY.STALE_MS in overlay-core.js
 const OVERLAY_LIVE_STALE_MS = 12000; // = OFR_OVERLAY.LIVE_STALE_MS
-const OVERLAY_KEYS = ["overlayLive", "overlaySelf", "overlayRecap", "overlayMask"];
+const OVERLAY_KEYS = ["overlayLive", "overlaySelf", "overlayRecap", "overlayMask", "overlayReplay"];
+// The replay GIF must fit in storage next to everything else (the recap card, the
+// tournament cache), and every storage listener is handed it with each change: at
+// most this many characters of data URL (= OFR_OVERLAY.MAX_GIF: 1.5 MB of storage,
+// ~1.1 MB of GIF). The first try keeps up to 150 frames at twice the recorded size;
+// each next one keeps fewer frames (by how far over it was), then drops to the
+// recorded size; four tries, and below 20 frames it is skipped.
+const OVERLAY_REPLAY_MAX = 1_500_000;
+const REPLAY_TRIES = 4;
+function replayFirstPlan(frames) {
+  return { maxFrames: Math.max(2, Math.min(150, Math.floor(Number(frames) || 0))), maxScale: 2 };
+}
+function replayNextPlan(plan, size, max = OVERLAY_REPLAY_MAX) {
+  if (!(size > max)) return null; // it fits
+  const ratio = (max / size) * 0.9;
+  let frames = Math.floor(plan.maxFrames * ratio);
+  let scale = plan.maxScale;
+  if (frames < 60 && scale > 1) {
+    scale = 1; // a quarter of the pixels: roughly a third of the bytes
+    frames = Math.min(plan.maxFrames, Math.floor(plan.maxFrames * ratio * 3));
+  } else frames = Math.min(frames, plan.maxFrames - 1);
+  if (frames < 20) return { skip: true };
+  return { maxFrames: frames, maxScale: scale };
+}
 // Map and mode names end up on the broadcast, and a script in the page can fake
 // both: plain names only (= LABEL in overlay-core.js).
 function overlayLabel(v) {
@@ -1979,6 +2003,46 @@ let overlayOffSince = 0;
 let overlaySelfSent = null;
 const overlayRecapAt = new Map(); // gameId -> when its card was first published
 let overlayCardMask = null; // the masking the last card this tab published was made for
+// The two big entries (images of a finished game) and which game each holds in
+// storage now (undefined: not known yet in this tab, null: none).
+const OVERLAY_CARD_KEYS = ["overlayRecap", "overlayReplay"];
+const overlayCardGame = { overlayRecap: undefined, overlayReplay: undefined };
+// Before an image of `gameId` goes in under `key`: another game's recap and replay
+// come out first, and a replay is removed before it is written again (masking
+// flipped) - so storage never holds two games' images, and no change event hands
+// every listener an old and a new image at once.
+async function overlayMakeRoom(gameId, key) {
+  const out = key === "overlayReplay" ? [key] : [];
+  for (const k of OVERLAY_CARD_KEYS) {
+    if (out.includes(k)) continue;
+    if (overlayCardGame[k] === undefined) {
+      try {
+        overlayCardGame[k] = (await chrome.storage.local.get(k))?.[k]?.gameId ?? null;
+      } catch {
+        continue;
+      }
+    }
+    if (overlayCardGame[k] !== null && overlayCardGame[k] !== gameId) out.push(k);
+  }
+  if (!out.length) return;
+  try {
+    await chrome.storage.local.remove(out);
+    for (const k of out) overlayCardGame[k] = null;
+  } catch {
+    // storage gone: the write after this fails the same way
+  }
+}
+// Write one of the two, making room first. Never throws.
+async function overlayPutCard(key, value) {
+  try {
+    await overlayMakeRoom(value.gameId, key);
+    await chrome.storage.local.set({ [key]: value });
+    overlayCardGame[key] = value.gameId;
+    return true;
+  } catch {
+    return false; // storage full or gone
+  }
+}
 function overlayOn() {
   const age = Date.now() - overlayBeat;
   return settings.enabled !== false && overlayBeat > 0 && age < OVERLAY_STALE_MS && age > -60000;
@@ -2000,6 +2064,7 @@ try {
     if (area !== "local") return;
     if (changes.overlayEnabled) overlayBeat = Number(changes.overlayEnabled.newValue) || 0;
     if (changes.overlayLive) overlayStored = changes.overlayLive.newValue ?? null;
+    for (const k of OVERLAY_CARD_KEYS) if (changes[k]) overlayCardGame[k] = changes[k].newValue?.gameId ?? null;
     if (changes.overlayMask) {
       const was = overlayMasked();
       overlayMaskAt = Number(changes.overlayMask.newValue) || 0;
@@ -2049,6 +2114,8 @@ function overlayCleanup(on, now) {
   overlayStored = null;
   overlayRecapAt.clear();
   overlayCardMask = null;
+  replayMade.clear();
+  replayAt.clear();
   chrome.storage.local.remove(OVERLAY_KEYS).catch(() => {});
 }
 
@@ -2061,6 +2128,7 @@ function overlayTick() {
   overlayCleanup(on, now);
   // the masking changed while no card could be drawn (overlay off for a moment): now
   if (on && overlayCardMask !== null && overlayCardMask !== overlayMasked()) republishOverlayRecap();
+  replayTick(on, now);
   const name = on ? selfStatsName() : null;
   if (name && name !== overlaySelfSent) chrome.storage.local.set({ overlaySelf: { name } }).catch(() => {});
   overlaySelfSent = name ?? (on ? overlaySelfSent : null);
@@ -2069,12 +2137,15 @@ function overlayTick() {
   let live = null;
   if (on && gameId && game?.running) {
     const f = overlayFigures?.gameId === gameId && now - overlayFigures.got < 5000 ? overlayFigures : null;
-    const phase = game.spawn || f?.spawn ? "spawn" : game.alive === false ? "out" : winModalShown() ? "ended" : game.alive === null ? "watching" : "playing";
+    const watched = game.spectator === true && casterState?.gameId === gameId && now - casterGot < 5000;
+    const phase = game.spawn || f?.spawn ? "spawn" : game.over === true ? "ended" : game.alive === false ? "out" : winModalShown() ? "ended" : game.alive === null ? "watching" : "playing";
     live = {
       gameId,
       phase,
-      seconds: f ? Math.round(f.seconds + (now - f.got) / 1000) : 0,
-      map: f?.map || overlayLabel(lastLobbyMap),
+      // before the probe's first figures: what the caster feed knows of a watched game
+      // (the game clock stands still in the spawn phase: not run on from the last figures)
+      seconds: f ? Math.round(f.seconds + (f.spawn ? 0 : (now - f.got) / 1000)) : watched ? Math.round(casterState.seconds) : 0,
+      map: f?.map || (watched ? overlayLabel(casterState.map) : "") || overlayLabel(lastLobbyMap),
       mode: overlayLabel(typeof game.mode === "string" ? game.mode : lastLobbyMode),
       humans: f?.humans ?? null,
       humansTotal: f?.humansTotal ?? null,
@@ -2084,8 +2155,14 @@ function overlayTick() {
       top: (f?.top ?? []).map((t) => ({ share: overlayShare(t.share) ?? 0, me: t.me })),
       visible: document.visibilityState === "visible",
     };
+    // observer mode: the watched game's leaderboard, teams and eliminations
+    const caster = game.spectator === true ? casterPayload(gameId, now) : null;
+    if (caster) live.caster = caster;
   }
   const mine = overlayStored?.owner === OVERLAY_TAB;
+  // a watched game: nothing before the first figures (a delayed overlay would show
+  // an empty 0:00 card for its first seconds)
+  if (live && game.spectator === true && !live.caster && !live.seconds && !mine) return;
   if (!live) {
     overlayLiveSig = "";
     // ours goes when we leave the game; a tab that went away without clearing
@@ -2160,7 +2237,7 @@ function publishOverlayRecap(model, gameId, record = lastRecordGame === gameId ?
     if (png.length > 1_500_000) png = card.toDataURL("image/webp", 0.92);
     if (png.length > 1_500_000) return;
     if (!overlayRecapAt.has(gameId)) overlayRecapAt.set(gameId, Date.now());
-    chrome.storage.local.set({ overlayRecap: { gameId, at: overlayRecapAt.get(gameId), png, streamer: model.streamer === true } }).catch(() => {});
+    overlayPutCard("overlayRecap", { gameId, at: overlayRecapAt.get(gameId), png, streamer: model.streamer === true });
   } catch {
     // no canvas / storage full: the overlay simply shows no recap card
   }
@@ -2194,6 +2271,237 @@ try {
 } catch {
   // storage unavailable
 }
+
+// --- Stream overlay: the replay (the game's timelapse as a GIF) ---------------------
+// Once the game is over (the client says so - never while it is being played),
+// while an overlay page is open, this tab turns the timelapse it recorded into a
+// GIF (timelapse.js toGif, which yields to the page every few frames) and hands it
+// to the overlay as "overlayReplay" { gameId, at, streamer, gif }, written once per
+// game (again only when the masking flips), after the previous game's recap and
+// replay were removed (overlayPutCard). It has to fit in 1.5 MB of storage (it
+// goes to every storage listener): fewer frames, then a smaller picture, until it
+// does (replayNextPlan);
+// if it never does, a note instead ({ gif: null, note: "size" }) that the overlay's
+// settings show. Masked exactly like the recap card: names left out of the strip
+// while streamer mode is on or an overlay page hides names, drawn again when that
+// flips. Not for a replay of an old game (the client's isReplay, or a record that
+// ended more than three hours ago), and removed with the rest when no overlay is
+// open any more (overlayCleanup).
+const replayMade = new Map(); // gameId -> the masking its replay was made (or skipped) for
+const replayAt = new Map(); // gameId -> when its replay was first published (the overlay's timer)
+let replayJob = null; // the game being encoded
+function replayTick(on, now) {
+  if (!on || replayJob || !alive()) return;
+  const gameId = currentGameId();
+  const game = readGameState();
+  if (!gameId || !game?.running || game.over !== true || game.replay === true) return;
+  if (lastRecordGame === gameId && typeof lastRecord?.end === "number" && Math.abs(now - lastRecord.end) > 3 * HOUR) return;
+  const L = globalThis.OFR_LAPSE;
+  if (!L || typeof L.toGif !== "function") return;
+  const mask = overlayMasked();
+  const made = replayMade.get(gameId);
+  if (made === mask) return;
+  if (made !== undefined && mask) dropOverlayReplay(gameId); // an unmasked replay must not stay
+  const frames = L.count(gameId);
+  const fresh = typeof L.lastFrameAt === "function" ? now - L.lastFrameAt(gameId) < 3 * HOUR : true;
+  if (frames < 2 || !fresh) {
+    replayMade.set(gameId, mask);
+    if (!replayAt.has(gameId)) replayAt.set(gameId, now);
+    overlayPutCard("overlayReplay", { gameId, at: replayAt.get(gameId), streamer: mask, gif: null, note: "frames" });
+    return;
+  }
+  buildReplay(gameId, mask, frames).catch(() => {});
+}
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+async function buildReplay(gameId, mask, frames) {
+  const L = globalThis.OFR_LAPSE;
+  replayJob = gameId;
+  let note = "size";
+  try {
+    let plan = replayFirstPlan(frames);
+    for (let n = 0; n < REPLAY_TRIES && plan && !plan.skip; n++) {
+      // the page moved on, the overlay closed or the masking flipped meanwhile: stop
+      if (!alive() || !overlayOn() || currentGameId() !== gameId || overlayMasked() !== mask) return;
+      const blob = await L.toGif({ gameId, streamer: mask, maxFrames: plan.maxFrames, maxScale: plan.maxScale });
+      const gif = await blobToDataUrl(blob);
+      if (!alive() || !overlayOn() || currentGameId() !== gameId || overlayMasked() !== mask) return;
+      const next = replayNextPlan(plan, gif.length);
+      if (!next) {
+        if (!replayAt.has(gameId)) replayAt.set(gameId, Date.now());
+        if (!(await overlayPutCard("overlayReplay", { gameId, at: replayAt.get(gameId), streamer: mask, gif }))) throw new Error("storage");
+        replayMade.set(gameId, mask);
+        return;
+      }
+      plan = next;
+    }
+  } catch {
+    note = "error"; // no frames any more (a newer game started recording), no canvas, storage full
+  } finally {
+    replayJob = null;
+  }
+  if (!alive() || currentGameId() !== gameId || overlayMasked() !== mask) return;
+  replayMade.set(gameId, mask);
+  if (!overlayOn()) return;
+  if (!replayAt.has(gameId)) replayAt.set(gameId, Date.now());
+  overlayPutCard("overlayReplay", { gameId, at: replayAt.get(gameId), streamer: mask, gif: null, note });
+}
+function dropOverlayReplay(gameId) {
+  chrome.storage.local.get("overlayReplay").then((r) => {
+    const card = r?.overlayReplay;
+    if (card?.gameId === gameId && card.streamer !== true) chrome.storage.local.remove("overlayReplay").catch(() => {});
+  }, () => {});
+}
+
+// --- Observer mode: the caster panel (caster.js) and the overlay's caster card --------
+// While this tab WATCHES a game (a spectator's seat - a running game's link opened
+// from the observer page or anywhere - or a replay), page-probe.js reports every
+// player's standing once a second, but only while this says so: data-ofr-caster
+// "on" when the panel is switched on or an overlay page is open. The names are the
+// ones the game shows (Hidden Names stays hidden); rank badges come from the same
+// lookups as everywhere else, only with rank lookups agreed. Nothing leaves this
+// computer except those lookups.
+let casterState = null; // OFR_OBSERVER.casterReduce: the watched game so far
+let casterGot = 0;
+let casterPanel = null;
+let casterOpen = true;
+try {
+  chrome.storage.local.get("casterFolded").then((r) => (casterOpen = r?.casterFolded !== true), () => {});
+} catch {
+  // storage unavailable: open
+}
+function watchingGame() {
+  const g = readGameState();
+  return Boolean(g?.running && g.spectator === true);
+}
+function casterWanted() {
+  return settings.enabled !== false && watchingGame() && (settings.casterPanel !== false || overlayOn());
+}
+// "[TAG] name" as the game shows it -> the bare name and the tag
+function splitShownName(shown) {
+  const m = /^\[([A-Za-z0-9]{1,5})\]\s*(.+)$/u.exec(String(shown ?? "").trim());
+  const name = (m ? m[2] : String(shown ?? "")).trim();
+  return name ? { name, clan: m ? m[1] : null } : null;
+}
+function casterPct(shown) {
+  const parts = splitShownName(shown);
+  if (!parts || placeholderKind(parts.name)) return null;
+  const info = known.get(statsKey(parts.name, parts.clan) ?? "");
+  return info?.found ? (ranked(info)?.pct ?? null) : null;
+}
+function casterViewFor(masked, limit, feedLimit) {
+  const O = globalThis.OFR_OBSERVER;
+  if (!O || !casterState) return null;
+  return O.casterView(casterState, { limit, feedLimit, masked, pctOf: settings.dataConsent === true ? casterPct : null });
+}
+window.addEventListener("message", (e) => {
+  if (e.source !== window || !alive()) return;
+  const m = e.data;
+  if (!m || m.__ofr !== "caster-state" || !casterWanted()) return;
+  if (typeof m.gameId !== "string" || m.gameId !== currentGameId()) return;
+  casterState = globalThis.OFR_OBSERVER?.casterReduce(casterState, m) ?? null;
+  casterGot = Date.now();
+  renderCaster();
+});
+function renderCaster() {
+  if (!alive()) return;
+  const show = settings.enabled !== false && settings.casterPanel !== false && watchingGame() && casterState && casterState.gameId === currentGameId() && Date.now() - casterGot < 8000;
+  if (!show) {
+    casterPanel?.destroy();
+    casterPanel = null;
+    return;
+  }
+  const C = globalThis.OFR_CASTER;
+  if (!C) return;
+  if (!casterPanel || !casterPanel.el.isConnected) {
+    for (const stale of document.querySelectorAll(".ofr-caster")) stale.remove(); // an orphaned copy's
+    casterPanel = C.createPanel({
+      startOpen: casterOpen,
+      onToggle: (open) => {
+        casterOpen = open;
+        if (alive()) chrome.storage.local.set({ casterFolded: !open }).catch(() => {});
+      },
+      badge: (row) =>
+        row.pct == null
+          ? null
+          : { text: `Top ${formatPercent(row.pct)}%`, band: percentBand(row.pct), title: `${row.name ?? ""}\nWorld rank: Top ${formatPercent(row.pct)}% (ofstats.io)`.trim() },
+    });
+    document.body.appendChild(casterPanel.el);
+  }
+  const masked = settings.streamerMode === true;
+  casterPanel.update(casterViewFor(masked, 12, 6), { masked });
+}
+// Rank badges for the humans with the most land, a dozen names every 15 s at most,
+// each asked once per page - only with rank lookups agreed.
+const casterAsked = new Set();
+let casterLookupAt = 0;
+async function casterLookups() {
+  if (settings.enabled === false || settings.dataConsent !== true || settings.streamerMode === true || !casterState) return;
+  if (Date.now() - casterLookupAt < 15000) return;
+  const names = [];
+  for (const p of casterState.players) {
+    if (!p.human || !p.alive || !(p.tiles > 0)) continue;
+    const parts = splitShownName(p.name);
+    if (!parts || placeholderKind(parts.name)) continue;
+    const lookupName = statsName(parts.name, parts.clan);
+    const key = lookupName.toLowerCase();
+    if (known.has(key) || casterAsked.has(key)) continue;
+    casterAsked.add(key);
+    names.push(lookupName);
+    if (names.length >= 12) break;
+  }
+  if (!names.length) return;
+  casterLookupAt = Date.now();
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "lookup", usernames: names });
+    for (const [name, info] of Object.entries(res ?? {})) known.set(name.toLowerCase(), info);
+    renderCaster();
+  } catch {
+    for (const n of names) casterAsked.delete(n.toLowerCase()); // worker asleep: next time
+  }
+}
+// The overlay's copy: ten rows, five eliminations, names left out while your name
+// is kept off the stream (streamer mode, an overlay page with name=0).
+function casterPayload(gameId, now) {
+  if (!casterState || casterState.gameId !== gameId || now - casterGot > 5000) return null;
+  const masked = overlayMasked();
+  const v = casterViewFor(masked, 10, 5);
+  if (!v) return null;
+  const round2 = (x) => Math.round(Math.min(1, Math.max(0, Number(x) || 0)) * 100) / 100;
+  return {
+    teamGame: v.teamGame,
+    playersAlive: v.playersAlive,
+    humansAlive: v.humansAlive,
+    humansTotal: v.humansTotal,
+    more: v.more,
+    board: v.board.map((r) => ({ place: r.place, name: r.name, team: r.team, share: overlayShare(r.share) ?? 0, frac: round2(r.frac), alive: r.alive, outAt: r.outAt == null ? null : Math.round(r.outAt), rgb: r.rgb, band: r.pct != null ? percentBand(r.pct) : null })),
+    teams: v.teams.map((t) => ({ name: t.name, share: overlayShare(t.share) ?? 0, frac: round2(t.frac), alive: t.alive, total: t.total, rgb: t.rgb })),
+    feed: v.feed.map((f) => ({ at: Math.round(f.at), name: f.name, team: f.team, human: f.human, rgb: f.rgb })),
+  };
+}
+function casterTick() {
+  if (!alive()) return;
+  const want = casterWanted();
+  const flag = want ? "on" : "off"; // page-probe.js sends the standings only while "on"
+  if (document.documentElement.dataset.ofrCaster !== flag) document.documentElement.dataset.ofrCaster = flag;
+  if (casterState && casterState.gameId !== currentGameId()) casterState = null; // left that game
+  if (!want && casterState && Date.now() - casterGot > 8000) casterState = null;
+  renderCaster();
+  if (want && settings.casterPanel !== false) casterLookups().catch(() => {});
+}
+setInterval(() => {
+  try {
+    casterTick();
+  } catch {
+    // extension reloaded under us
+  }
+}, 1000);
 
 function syncChat() {
   const chat = globalThis.OFR_CHAT;
@@ -2479,7 +2787,7 @@ function scheduleRefresh() {
   }, 200);
 }
 
-const OUR_CONTAINERS = ".ofr-recap, .ofr-dash, .ofr-settings, .ofr-home, .ofr-viewer, .ofr-chat-host";
+const OUR_CONTAINERS = ".ofr-recap, .ofr-dash, .ofr-settings, .ofr-home, .ofr-viewer, .ofr-chat-host, .ofr-caster";
 function isOurMutation(mutation) {
   if (mutation.target?.nodeType === Node.ELEMENT_NODE && mutation.target.closest(OUR_CONTAINERS)) return true;
   const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
@@ -2498,6 +2806,7 @@ function isOurMutation(mutation) {
           n.classList?.contains("ofr-dash") ||
           n.classList?.contains("ofr-recap") ||
           n.classList?.contains("ofr-chat-host") ||
+          n.classList?.contains("ofr-caster") ||
           n.classList?.contains("ofr-toasts") ||
           n.classList?.contains("ofr-toast")),
     )

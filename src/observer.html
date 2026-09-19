@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OpenFront Pro - observer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="content.css" />
+    <style>
+      /* Observer page. Every colour is a theme token from content.css. */
+      body { margin: 0; background: var(--ofr-stage-bg); color: var(--ofr-text); font: var(--ofr-fs-md, 13px) / var(--ofr-lh-normal, 1.45) var(--ofr-ui-font); }
+      [hidden] { display: none !important; }
+      .ob-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      .ob-wrap { box-sizing: border-box; max-width: 780px; margin: 0 auto; padding: var(--ofr-space-6, 16px); }
+      .ob-ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+      .ob-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ofr-space-4, 8px) var(--ofr-space-5, 12px); margin-bottom: var(--ofr-space-5, 12px); }
+      .ob-top img { border-radius: 8px; }
+      .ob-top h1 { margin: 0; font-size: var(--ofr-fs-xl, 18px); line-height: var(--ofr-lh-tight, 1.15); }
+      .ob-card { margin-bottom: var(--ofr-space-5, 12px); padding: var(--ofr-space-5, 12px) var(--ofr-space-6, 16px); }
+
+      /* the link box */
+      .ob-find { display: flex; flex-wrap: wrap; gap: var(--ofr-space-4, 8px); }
+      .ob-find .ofr-input { flex: 1 1 300px; height: var(--ofr-ctl-h-lg, 38px); font-size: var(--ofr-fs-lg, 15px); }
+      .ob-find .ofr-btn { min-width: 96px; }
+      .ob-hint { margin: var(--ofr-space-3, 6px) 0 0; color: var(--ofr-text-dim); font-size: var(--ofr-fs-xs, 11px); }
+      .ob-hint[data-tone="error"] { color: var(--ofr-elite); }
+
+      /* the game: a coloured edge for its state, then graphics */
+      .ob-game { position: relative; padding: 0; overflow: hidden; }
+      .ob-game::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--ob-tone, var(--ofr-track)); }
+      .ob-game[data-state="started"] { --ob-tone: var(--ofr-good); }
+      .ob-game[data-state="starting"], .ob-game[data-state="countdown"] { --ob-tone: var(--ofr-strong); }
+      .ob-game[data-state="unknown"], .ob-game[data-state="empty"] { --ob-tone: var(--ofr-average); }
+      .ob-game[data-state="ended"], .ob-game[data-state="legacy"] { --ob-tone: var(--ofr-text-dim); }
+      .ob-game[data-state="missing"], .ob-game[data-state="error"] { --ob-tone: var(--ofr-elite); }
+      .ob-game[data-state="consent"], .ob-game[data-state="off"] { --ob-tone: var(--ofr-average); }
+      .ob-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ofr-space-4, 8px) var(--ofr-space-5, 12px); padding: var(--ofr-space-6, 16px) var(--ofr-space-6, 16px) var(--ofr-space-4, 8px) 20px; }
+      .ob-status { display: inline-flex; align-items: center; gap: var(--ofr-space-4, 8px); color: var(--ob-tone, var(--ofr-text)); font: var(--ofr-fw-heavy, 800) var(--ofr-fs-2xl, 24px) / 1 var(--ofr-ui-font); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+      .ob-status::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent); }
+      .ob-game[data-state="started"] .ob-status::before, .ob-game[data-busy="true"] .ob-status::before { animation: ofr-pulse 1.6s ease-in-out infinite; }
+      .ob-id { margin-left: auto; height: 22px; font: var(--ofr-fw-bold, 700) var(--ofr-fs-xs, 11px) / 1 var(--ofr-mono-font); letter-spacing: 0.02em; }
+      .ob-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--ofr-space-4, 8px); padding: var(--ofr-space-2, 4px) var(--ofr-space-6, 16px) var(--ofr-space-5, 12px) 20px; }
+      .ob-tile { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px; border-radius: var(--ofr-radius-inner, 6px); background: var(--ofr-panel-soft); }
+      .ob-tile-lab { display: flex; align-items: center; gap: 5px; color: var(--ofr-text-dim); font: var(--ofr-fw-bold, 700) var(--ofr-fs-label, 10.5px) / 1 var(--ofr-ui-font); letter-spacing: var(--ofr-tracking-label, 0.07em); text-transform: uppercase; }
+      .ob-tile-lab .ob-ico { width: 13px; height: 13px; }
+      .ob-tile-val { overflow: hidden; font: var(--ofr-fw-heavy, 800) var(--ofr-fs-xl, 18px) / 1.1 var(--ofr-ui-font); text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .ob-tile-val small { margin-left: 2px; color: var(--ofr-text-dim); font-size: var(--ofr-fs-sm, 12px); font-weight: var(--ofr-fw-bold, 700); }
+      .ob-fill { height: 6px; margin-top: 2px; overflow: hidden; border-radius: var(--ofr-radius-pill, 999px); background: var(--ofr-track); }
+      .ob-fill > span { display: block; height: 100%; border-radius: inherit; background: var(--ofr-average); }
+      .ob-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ofr-space-4, 8px); padding: var(--ofr-space-4, 8px) var(--ofr-space-6, 16px) var(--ofr-space-6, 16px) 20px; }
+      .ob-actions .ofr-btn-lg { min-width: 160px; }
+      .ob-actions .ob-ico { width: 18px; height: 18px; }
+      .ob-note { flex: 1 1 220px; margin: 0; color: var(--ofr-text-dim); font-size: var(--ofr-fs-sm, 12px); }
+      .ob-warn { margin: 0 var(--ofr-space-6, 16px) var(--ofr-space-2, 4px) 20px; }
+      .ob-warn b { color: var(--ofr-text); }
+      .ob-remind { display: flex; align-items: center; gap: var(--ofr-space-5, 12px); margin: 0 var(--ofr-space-6, 16px) var(--ofr-space-5, 12px) 20px; padding: 10px 12px; border-radius: var(--ofr-radius-inner, 6px); background: var(--ofr-panel-soft); }
+      .ob-ring { position: relative; flex: none; width: 40px; height: 40px; }
+      .ob-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+      .ob-ring circle { fill: none; stroke-width: 5; }
+      .ob-ring .t { stroke: var(--ofr-track); }
+      .ob-ring .a { stroke: var(--ofr-accent); stroke-linecap: round; transition: stroke-dasharray 1s linear; }
+      .ob-remind-text { flex: 1; min-width: 0; }
+      .ob-remind-text b { display: block; font-size: var(--ofr-fs-md, 13px); }
+      .ob-remind-text small { color: var(--ofr-text-dim); font-size: var(--ofr-fs-xs, 11px); font-variant-numeric: tabular-nums; }
+
+      /* caster tools */
+      .ob-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--ofr-space-5, 12px); }
+      .ob-tool { display: flex; gap: var(--ofr-space-5, 12px); min-width: 0; padding: 12px; border-radius: var(--ofr-radius-inner, 6px); background: var(--ofr-panel-soft); }
+      .ob-tool > .ob-ico { width: 26px; height: 26px; color: var(--ofr-accent); }
+      .ob-tool b { display: block; }
+      .ob-tool p { margin: 2px 0 8px; color: var(--ofr-text-dim); font-size: var(--ofr-fs-sm, 12px); }
+      .ob-delay { display: flex; align-items: flex-start; gap: var(--ofr-space-5, 12px); margin-top: var(--ofr-space-5, 12px); padding: 12px; border: 1px solid var(--ofr-panel-border); border-radius: var(--ofr-radius-inner, 6px); }
+      .ob-delay-badge { display: grid; place-items: center; flex: none; width: 58px; height: 58px; border-radius: 50%; background: color-mix(in srgb, var(--ofr-accent) 16%, transparent); color: var(--ofr-accent-ink, var(--ofr-accent)); font: var(--ofr-fw-heavy, 800) var(--ofr-fs-lg, 15px) / 1 var(--ofr-ui-font); font-variant-numeric: tabular-nums; }
+      .ob-delay p { margin: 0; color: var(--ofr-text-dim); font-size: var(--ofr-fs-sm, 12px); }
+      .ob-delay p b { color: var(--ofr-text); }
+      .ob-delay p + p { margin-top: 4px; }
+      :is(.ofr-btn, .ofr-input):focus-visible { outline: var(--ofr-focus-width, 2px) solid var(--ofr-focus-color, var(--ofr-average)); outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <div class="ob-wrap">
+      <header class="ob-top">
+        <img src="../icons/icon48.png" width="32" height="32" alt="" />
+        <h1>Observer</h1>
+        <span class="ofr-chip" title="Not affiliated with OpenFront">Unofficial</span>
+      </header>
+
+      <section class="ofr-card ob-card" aria-labelledby="ob-find-label">
+        <h2 class="ofr-eyebrow" id="ob-find-label">Watch a game</h2>
+        <form class="ob-find" id="ob-form">
+          <label class="ob-sr" for="ob-link">Game link or id</label>
+          <input id="ob-link" class="ofr-input" placeholder="https://openfront.io/game/…  or the game id" autocomplete="off" spellcheck="false" />
+          <button type="submit" id="ob-check" class="ofr-btn ofr-btn-primary ofr-btn-lg">Check</button>
+        </form>
+        <p class="ob-hint" id="ob-hint">A game link, a lobby link (#join=…, /join/…) or the id.</p>
+      </section>
+
+      <section class="ofr-card ob-card ob-game" id="ob-game" aria-live="polite" hidden>
+        <div class="ob-head">
+          <span class="ob-status" id="ob-status"></span>
+          <span class="ofr-chip ob-id" id="ob-id" title="Game id"></span>
+        </div>
+        <div class="ob-tiles" id="ob-tiles"></div>
+        <p class="ofr-state ob-warn" data-kind="error" id="ob-warn" hidden></p>
+        <div class="ob-remind" id="ob-remind" hidden>
+          <span class="ob-ring" aria-hidden="true"><svg viewBox="0 0 44 44"><circle class="t" cx="22" cy="22" r="18"></circle><circle class="a" id="ob-ring" cx="22" cy="22" r="18" pathLength="100" stroke-dasharray="0 100"></circle></svg></span>
+          <span class="ob-remind-text"><b id="ob-remind-title">Waiting for the start</b><small id="ob-remind-line"></small></span>
+          <button type="button" class="ofr-btn ofr-btn-sm" id="ob-remind-stop">Stop</button>
+        </div>
+        <div class="ob-actions" id="ob-actions"></div>
+      </section>
+
+      <section class="ofr-card ob-card" aria-labelledby="ob-tools-label">
+        <h2 class="ofr-eyebrow" id="ob-tools-label">Casting</h2>
+        <div class="ob-tools">
+          <div class="ob-tool">
+            <svg class="ob-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H4z" /><path d="M8 20h8M12 16v4" /><path d="M7 13v-2M10 13V9M13 13v-3M16 13V8" /></svg>
+            <span><b>Caster panel</b><p>In the game tab while you watch: leaderboard, teams, eliminations, clock.</p></span>
+          </div>
+          <div class="ob-tool">
+            <svg class="ob-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3" /></svg>
+            <span><b>OBS caster overlay</b><p>The same leaderboard for your stream, then the replay.</p><button type="button" class="ofr-btn ofr-btn-sm" id="ob-overlay">Open caster overlay</button></span>
+          </div>
+        </div>
+        <div class="ob-delay">
+          <span class="ob-delay-badge" aria-hidden="true">90 s</span>
+          <div>
+            <p><b>Why the overlay runs 90 s late.</b> Viewers of a live game can tell the players in it what they see (ghosting). The caster overlay holds its cards back 90 seconds by default (delay=0 to 600 in its address).</p>
+            <p>It only delays the overlay: delay the game capture itself too (OBS: stream delay, or a Render Delay filter).</p>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script src="themes.js"></script>
+    <script src="tournament-core.js"></script>
+    <script src="observer-core.js"></script>
+    <script src="observer.js"></script>
+  </body>
+</html>

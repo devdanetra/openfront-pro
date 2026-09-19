@@ -69,6 +69,8 @@
       [data-band="good"] { --ov-band: var(--ofr-good); }
       [data-band="average"] { --ov-band: var(--ofr-average); }
       [data-band="low"] { --ov-band: var(--ofr-low); }
+      .ov-live[data-phase="watching"].ov-caster { --ov-state: var(--ofr-good); }
+      .ov-caster[data-phase="watching"] .ov-state::before { animation: ofr-pulse 1.6s ease-in-out infinite; }
 
       /* ---- rank card ---------------------------------------------------------- */
       .ov-rank { display: flex; align-items: center; gap: 18px; --ov-edge: var(--ov-band, var(--ofr-accent)); }
@@ -140,6 +142,72 @@
       .ov-timer { position: absolute; right: 0; bottom: 0; left: 0; height: 4px; background: var(--ofr-track); }
       .ov-timer > span { display: block; height: 100%; background: var(--ofr-accent); transition: width 1s linear; }
 
+      /* ---- replay: the game's timelapse GIF after the recap card ---------------- */
+      .ov-replay img { image-rendering: auto; }
+      .ov-replay-tag {
+        position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 4px;
+        padding: 3px 9px 3px 6px; border-radius: var(--ofr-radius-pill, 999px);
+        background: color-mix(in srgb, var(--ofr-float-bg, var(--ofr-panel-bg)) 88%, transparent); color: var(--ofr-text);
+        font: var(--ofr-fw-heavy, 800) 12px/1 var(--ofr-ui-font); letter-spacing: 0.08em; text-transform: uppercase;
+      }
+      .ov-replay-tag svg { width: 12px; height: 12px; fill: var(--ofr-accent); }
+
+      /* ---- caster card (observer mode): the watched game ------------------------- */
+      .ov-caster { width: 440px; }
+      .ov-cmeta { display: flex; gap: 8px; margin-top: 10px; }
+      .ov-cchip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: var(--ofr-radius-pill, 999px); background: var(--ofr-panel-soft); color: var(--ofr-text); font: var(--ofr-fw-bold, 700) 14px/1 var(--ofr-ui-font); font-variant-numeric: tabular-nums; }
+      .ov-cchip svg { width: 14px; height: 14px; fill: var(--ofr-text-dim); }
+      .ov-cchip small { margin-left: -3px; color: var(--ofr-text-dim); font-size: 12px; }
+      /* the game's colour for a player or team (data): set as --ov-sw */
+      .ov-sw { flex: none; width: 12px; height: 12px; border-radius: 3px; background: var(--ov-sw, var(--ofr-track)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ofr-text) 25%, transparent); }
+      .ov-split { display: flex; gap: 2px; height: 12px; margin-top: 12px; overflow: hidden; border-radius: var(--ofr-radius-pill, 999px); background: var(--ofr-track); }
+      .ov-seg { min-width: 4px; flex-basis: 0; height: 100%; background: var(--ov-sw, var(--ofr-text-dim)); }
+      .ov-teams { display: grid; gap: 4px; margin-top: 8px; }
+      .ov-team { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 52px; align-items: center; gap: 8px; color: var(--ofr-text); font: var(--ofr-fw-bold, 700) 13px/1.2 var(--ofr-ui-font); }
+      .ov-team[data-out="true"] { opacity: 0.45; }
+      .ov-tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ov-tpips { display: inline-flex; gap: 3px; }
+      .ov-tpip { width: 7px; height: 7px; border-radius: 50%; background: var(--ofr-track); }
+      .ov-tpip[data-on="true"] { background: var(--ofr-good); }
+      .ov-tpct { text-align: right; font-variant-numeric: tabular-nums; }
+      .ov-board { display: grid; gap: 4px; margin: 12px 0 0; padding: 0; list-style: none; }
+      .ov-crow { display: grid; grid-template-columns: 20px 12px minmax(0, 1fr) 96px 50px; align-items: center; gap: 8px; min-height: 22px; color: var(--ofr-text); font: var(--ofr-fw-bold, 700) 14px/1.2 var(--ofr-ui-font); }
+      .ov-cplace { color: var(--ofr-text-dim); text-align: right; font-variant-numeric: tabular-nums; }
+      .ov-crow:first-child .ov-cplace { color: var(--ofr-accent-ink, var(--ofr-accent)); }
+      .ov-cwho { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .ov-cname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ov-cname[data-masked="true"] { color: var(--ofr-text-dim); font-style: italic; font-weight: var(--ofr-fw-semibold, 600); }
+      .ov-band { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ov-band, var(--ofr-text-dim)); }
+      .ov-cbar { height: 9px; overflow: hidden; border-radius: var(--ofr-radius-pill, 999px); background: var(--ofr-track); }
+      .ov-cbar > span { display: block; height: 100%; border-radius: inherit; background: color-mix(in srgb, var(--ofr-text-dim) 75%, transparent); transition: width var(--ofr-dur-3, 240ms) var(--ofr-ease-out, ease-out); }
+      .ov-crow:first-child .ov-cbar > span { background: var(--ofr-accent); }
+      .ov-cpct { text-align: right; font-variant-numeric: tabular-nums; }
+      .ov-crow[data-alive="false"] { color: var(--ofr-text-dim); }
+      .ov-crow[data-alive="false"] .ov-cplace { color: var(--ofr-elite); }
+      .ov-crow[data-alive="false"] .ov-cname { text-decoration: line-through; font-weight: var(--ofr-fw-semibold, 600); }
+      .ov-crow[data-alive="false"] .ov-cbar { visibility: hidden; }
+      .ov-cmore { margin: 4px 0 0 28px; color: var(--ofr-text-dim); font: var(--ofr-fw-bold, 700) 12px/1 var(--ofr-ui-font); }
+      .ov-feed { display: grid; gap: 4px; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--ofr-panel-border); list-style: none; }
+      .ov-out { display: grid; grid-template-columns: 14px 44px 12px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ofr-text); font: var(--ofr-fw-semibold, 600) 13px/1.2 var(--ofr-ui-font); }
+      .ov-out:first-child { animation: ofr-rise var(--ofr-dur-3, 240ms) var(--ofr-ease-out, ease-out); }
+      .ov-skull { width: 14px; height: 14px; fill: var(--ofr-elite); }
+      .ov-otime { color: var(--ofr-text-dim); font: var(--ofr-fw-bold, 700) 12px/1 var(--ofr-mono-font); font-variant-numeric: tabular-nums; }
+
+      /* "delayed 90s": small, next to the cards, while the game cards run late */
+      .ov-delay {
+        display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 3px 9px 3px 6px;
+        border-radius: var(--ofr-radius-pill, 999px); background: color-mix(in srgb, var(--ofr-float-bg, var(--ofr-panel-bg)) 85%, transparent);
+        color: var(--ofr-text-dim); font: var(--ofr-fw-bold, 700) 11px/1 var(--ofr-ui-font); font-variant-numeric: tabular-nums; zoom: var(--ofr-ov-scale);
+      }
+      .ov-delay svg { width: 12px; height: 12px; fill: currentColor; }
+      html[data-bg="green"] .ov-delay { background: var(--ofr-float-bg, var(--ofr-panel-bg)); }
+      html[data-pos$="r"] #stage { text-align: right; }
+      html[data-pos^="b"] #stage { display: flex; flex-direction: column-reverse; }
+      html[data-pos^="b"] .ov-delay { margin: 0 0 8px; }
+      html[data-pos="br"] .ov-delay { align-self: flex-end; }
+      html[data-pos="bl"] .ov-delay { align-self: flex-start; }
+      #cards { text-align: left; }
+
       /* ---- settings panel (?edit=1; never in the OBS address) -------------------- */
       #edit {
         position: fixed; z-index: 3; box-sizing: border-box; width: 340px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
@@ -166,6 +234,8 @@
       .ed-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
       .ed-note { margin: 8px 0 0; color: var(--ofr-text-dim); font-size: var(--ofr-fs-xs, 11px); line-height: var(--ofr-lh-normal, 1.45); }
       .ed-note[data-tone="warn"] { color: var(--ofr-text); }
+      .ed-note.ed-gap { margin: -2px 0 12px; }
+      #ed-replay-note { margin: -4px 0 10px; }
       .ed-note[data-tone="warn"]::before { content: "!"; display: inline-grid; place-items: center; width: 14px; height: 14px; margin-right: 6px; border-radius: 50%; background: var(--ofr-strong); color: var(--ofr-on-band, #0b0d12); font: 800 10px/1 var(--ofr-ui-font); vertical-align: -2px; }
       #ed-state { margin-top: 12px; }
       #gear { position: fixed; z-index: 2; opacity: 0; transition: opacity var(--ofr-dur-2, 160ms) var(--ofr-ease-out, ease-out); background: var(--ofr-float-bg, var(--ofr-panel-bg)); }
@@ -179,7 +249,7 @@
     </style>
   </head>
   <body>
-    <main id="stage" aria-label="OpenFront Pro stream overlay"><div id="cards"></div></main>
+    <main id="stage" aria-label="OpenFront Pro stream overlay"><div id="cards"></div><div id="delay" class="ov-delay" hidden></div></main>
 
     <aside id="edit" class="ofr-float" hidden aria-label="Overlay settings">
       <div class="ed-head">
@@ -192,6 +262,7 @@
         <div class="ed-chips" id="ed-widgets">
           <button type="button" class="ofr-chip" data-w="rank">Rank</button>
           <button type="button" class="ofr-chip" data-w="live">Live game</button>
+          <button type="button" class="ofr-chip" data-w="caster" title="Observer mode: the leaderboard, teams and eliminations of a game you watch">Caster</button>
           <button type="button" class="ofr-chip" data-w="recap">Recap</button>
         </div>
       </div>
@@ -220,6 +291,16 @@
         <span class="ov-label">Recap</span>
         <span class="ed-inline"><input type="number" id="ed-recap" class="ofr-input ofr-input-sm" min="0" max="600" step="5" /> seconds (0: until the next game)</span>
       </label>
+      <div class="ed-group">
+        <span class="ov-label">Replay</span>
+        <span class="ed-inline"><button type="button" class="ofr-chip" id="ed-replay-on" title="After the recap card: the game's timelapse as a GIF">Replay</button><input type="number" id="ed-replay" class="ofr-input ofr-input-sm" min="5" max="600" step="5" aria-label="Replay seconds" /> s</span>
+      </div>
+      <p class="ed-note" id="ed-replay-note" hidden></p>
+      <label class="ed-group">
+        <span class="ov-label">Delay</span>
+        <span class="ed-inline"><input type="number" id="ed-delay" class="ofr-input ofr-input-sm" min="0" max="600" step="10" /> seconds late</span>
+      </label>
+      <p class="ed-note ed-gap">The game cards run late so viewers cannot pass live information to players in that game (ghosting). 90 s with the caster card.</p>
       <div class="ed-group">
         <span class="ov-label">Show</span>
         <div class="ed-chips">

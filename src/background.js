@@ -13,6 +13,8 @@
 importScripts("vendor/nostr-crypto.js", "nostr.js", "team.js");
 // The clan hub's Recruits index (recruitRecord / mergeRecruits): pure, no DOM.
 importScripts("scoring.js", "clans-logic.js");
+// Observer mode: the route to a game's server, from its id (observerCheck): pure.
+importScripts("observer-core.js");
 
 const OFSTATS_API = "https://api.ofstats.io";
 
@@ -53,6 +55,7 @@ const DEFAULT_SETTINGS = {
   // (src/welcome.html, opened on install). Themes and layouts work without it.
   dataConsent: false,
   timelapse: true, // record a whole-map timelapse of each game (memory only, never uploaded)
+  casterPanel: true, // watching a game (spectator): leaderboard, teams and eliminations panel
   chatEnabled: false, // opt-in: talks to third-party relays...
   chatConsent: false, // ...and only after agreeing to the chat's own disclosure
   chatInFfa: false, // chat while alive in a free-for-all (OpenFront's terms forbid coordinating there)
@@ -498,7 +501,7 @@ async function ensureInjected(tabId, url) {
     });
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["src/themes.js", "src/scoring.js", "src/map-viewer.js", "src/charts.js", "src/dashboard.js", "src/timelapse.js", "src/recap.js", "src/chat.js", "src/content.js"],
+      files: ["src/themes.js", "src/scoring.js", "src/map-viewer.js", "src/charts.js", "src/dashboard.js", "src/timelapse.js", "src/recap.js", "src/chat.js", "src/observer-core.js", "src/caster.js", "src/content.js"],
     });
     // The map preview needs the page's own asset manifest and the lobby
     // element's gameConfig, neither of which an isolated world can see.
@@ -565,6 +568,88 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 chrome.runtime.onStartup.addListener(injectExisting);
 injectExisting();
+
+// --- Observer mode (src/observer.html) ---------------------------------------------
+// (tools/test-observer.mjs runs the block between the markers with a stand-in fetch)
+// <observer-check>
+// Is a game running, still in its lobby, or over? Asked the way OpenFront's own
+// lobby modal asks (v0.34.10 JoinLobbyModal): the public server list names the host
+// behind the id's first letter, and that host's worker (hash of the id) answers
+// /api/game/<id>/exists and /api/game/<id> (gameInfo: map, mode, lobby clients -
+// anonymised there when the lobby hides names - and the start time). A game that
+// is no longer there is looked for in the public archive (the recap's endpoint):
+// then it is over. Only the game id goes out; nothing about the user. The answer
+// keeps counts, never names (see slimGameInfo).
+const CLUSTER_URL = "https://api.openfront.io/cluster.json?site=openfront.io";
+let clusterCache = null; // { at, list }: the list changes on deploys only
+async function fetchCluster() {
+  if (clusterCache && Date.now() - clusterCache.at < 10 * 60 * 1000) return clusterCache.list;
+  const got = await getJson(CLUSTER_URL);
+  if (!got.body || typeof got.body !== "object") throw new Error(`server list: HTTP ${got.status}`);
+  clusterCache = { at: Date.now(), list: got.body };
+  return got.body;
+}
+// A redirect is refused: the route was built for one openfront.io host, and a
+// redirect must not take the request (with the game id) anywhere else.
+async function getJson(url) {
+  const res = await fetch(url, { headers: { accept: "application/json" }, redirect: "error" });
+  if (res.status === 404) return { status: 404, body: null };
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!(res.headers.get("content-type") ?? "").includes("application/json")) throw new Error("not JSON (a bot check?)");
+  return { status: res.status, body: await res.json() };
+}
+// Counts, map and mode, the start time: what the observer page shows. Player names
+// stay here.
+function slimGameInfo(info) {
+  if (!info || typeof info !== "object") return null;
+  const cfg = info.gameConfig && typeof info.gameConfig === "object" ? info.gameConfig : {};
+  const pick = (v, n = 40) => (typeof v === "string" ? v.slice(0, n) : typeof v === "number" && Number.isFinite(v) ? v : null);
+  return {
+    gameConfig: { gameMap: pick(cfg.gameMap), gameMode: pick(cfg.gameMode), playerTeams: pick(cfg.playerTeams), maxPlayers: pick(cfg.maxPlayers), gameType: pick(cfg.gameType) },
+    clients: (Array.isArray(info.clients) ? info.clients : []).slice(0, 2000).map((c) => ({ spectator: c?.spectator === true })),
+    startsAt: typeof info.startsAt === "number" && Number.isFinite(info.startsAt) ? info.startsAt : null,
+    serverTime: typeof info.serverTime === "number" && Number.isFinite(info.serverTime) ? info.serverTime : null,
+  };
+}
+async function observerCheck(rawId) {
+  const O = globalThis.OFR_OBSERVER;
+  const id = typeof rawId === "string" && O.GAME_ID.test(rawId) ? rawId : null;
+  if (!id) return { id: null, error: "not a game id" };
+  if (!(await getSettings()).enabled) return { id, error: "off" };
+  const out = { id, route: null, exists: null, info: null, ended: false, error: null, fetchedAt: Date.now() };
+  let route = { kind: "no-list" };
+  try {
+    route = O.gameRoute(id, id.length >= 10 ? await fetchCluster() : null);
+  } catch (err) {
+    out.error = String(err?.message ?? err);
+  }
+  out.route = route.kind;
+  if (route.kind === "ok") {
+    try {
+      out.exists = (await getJson(route.exists)).body?.exists === true;
+      if (out.exists) {
+        const got = await getJson(route.info);
+        out.info = slimGameInfo(got.body);
+        out.fetchedAt = Date.now();
+        if (!out.info) out.exists = false; // gone between the two requests
+      }
+    } catch (err) {
+      out.error = String(err?.message ?? err);
+    }
+  }
+  // not running (or no server for it): over, if the archive has it
+  if (!out.info && (out.exists === false || route.kind === "legacy" || route.kind === "unknown-letter")) {
+    try {
+      out.ended = Boolean((await fetchGameRecord(id))?.players);
+    } catch {
+      // archive unreachable: say what is known
+    }
+    if (!out.ended && route.kind === "unknown-letter") out.exists = false;
+  }
+  return out;
+}
+
+// </observer-check>
 
 // Post-game recap: OpenFront's own record of a finished game carries each
 // player's elimination turn (`stats.killedAt`, absent for survivors) and the
@@ -1002,6 +1087,12 @@ function onMessage(msg, _sender, sendResponse) {
       .then(sendResponse);
     return true;
   }
+  if (msg?.type === "observerCheck") {
+    observerCheck(msg.gameId)
+      .catch((err) => ({ id: null, error: String(err?.message ?? err) }))
+      .then(sendResponse);
+    return true;
+  }
   if (msg?.type === "notify") {
     // Only used when the OpenFront tab is in the background, so a watched
     // player joining your lobby still reaches you. Follows the same switch as
@@ -1025,7 +1116,7 @@ function onMessage(msg, _sender, sendResponse) {
   }
   if (msg?.type === "openPage") {
     // The extension's own tool pages (popup "Tools" tab); nothing else can be opened this way.
-    const PAGES = { overlay: "src/overlay.html", clans: "src/clans.html", tournament: "src/tournament.html" };
+    const PAGES = { overlay: "src/overlay.html", clans: "src/clans.html", tournament: "src/tournament.html", observer: "src/observer.html" };
     // own keys only: "constructor", "toString" & co. are not pages
     const page = typeof msg.page === "string" && Object.hasOwn(PAGES, msg.page) && typeof PAGES[msg.page] === "string" ? PAGES[msg.page] : null;
     const hash = typeof msg.hash === "string" && /^#[\w=&%.-]{0,200}$/.test(msg.hash) ? msg.hash : "";
@@ -1100,7 +1191,7 @@ function onMessage(msg, _sender, sendResponse) {
 
 // Lookups leave the browser (ofstats, OpenFront's game API), so they wait for
 // the user's agreement (src/welcome.html). Everything else is local.
-const LOOKUP_MESSAGES = new Set(["lookup", "clan", "clanLeaderboard", "clanTable", "gameRecord"]);
+const LOOKUP_MESSAGES = new Set(["lookup", "clan", "clanLeaderboard", "clanTable", "gameRecord", "observerCheck"]);
 let dataConsent = null; // null until storage has been read
 const consentReady = chrome.storage.sync
   .get({ dataConsent: false })

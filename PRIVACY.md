@@ -27,8 +27,9 @@ either, and neither does the map preview below.
 
 | What | To | When | Why |
 |---|---|---|---|
-| **Player names**: the names shown in your lobby or game (including your own OpenFront username), the players named in a game's recap, and any name you type into the dashboard's search or *Compare* box; and **clan tags** seen there or opened in the dashboard | `api.ofstats.io` - an independent, third-party community statistics service for public OpenFront games | while you look at a lobby, the in-game player panels, the dashboard or the recap; your own name also on OpenFront's front page (your stats card, at most once a minute) and again after each game you played (for the rank change). Without any name: the weekly clan table in the dashboard, and a reachability check each time you open the settings | to fetch public player and clan statistics and show ranks |
+| **Player names**: the names shown in your lobby or game (including your own OpenFront username; also the players of a game you watch, for the caster panel's rank badges: a dozen at most every 15 s, not in streamer mode), the players named in a game's recap, and any name you type into the dashboard's search or *Compare* box; and **clan tags** seen there or opened in the dashboard | `api.ofstats.io` - an independent, third-party community statistics service for public OpenFront games | while you look at a lobby, the in-game player panels, the dashboard or the recap; your own name also on OpenFront's front page (your stats card, at most once a minute) and again after each game you played (for the rank change). Without any name: the weekly clan table in the dashboard, and a reachability check each time you open the settings | to fetch public player and clan statistics and show ranks |
 | **The id of a game whose end screen you saw** (played, spectated or a replay), and **each game id you add to a tournament** in the *Tournaments* page | OpenFront's own public API (`api.openfront.io`) | when the end-of-game screen appears, then every 5 s for a minute and every 30 s after that while the game stays on screen (up to about 30 minutes), until OpenFront publishes the record; a game whose record was not published yet is asked for again when you next open an openfront.io page, for up to 24 hours. Only while the recap is switched on. Tournaments: once per game you add (or when a tournament you open or import lists it; more than 20 at once only after you click *Fetch*), two at a time and at least 400 ms apart, and again only when you press *Retry* or OpenFront asked to slow down (HTTP 429: up to 3 more tries, 2-8 s apart); a finished game's record is kept in this browser, so it is not asked for twice | to read the public record of that game |
+| **A game id you paste into the *Observer* page** (and nothing else: no name, no account) | OpenFront's own public endpoints: the server list `api.openfront.io/cluster.json?site=openfront.io` (which server runs ids with that first letter; kept 10 minutes), then that server's `/api/game/<id>/exists` and `/api/game/<id>` (the game's map, mode, player count and start time - the answer also lists the lobby's names, which the extension drops at once), and, for a game that is not running, the public record at `api.openfront.io` (to tell "over" from "not found") | when you press *Check*; with *Remind me when it starts*, again every 15 s (at most 30 minutes, until it starts or you press *Stop*; it stops by itself when the game is over, not found or an old id, and after 8 answers that cannot tell whether a game without a start time began; one reminder per game across observer tabs); once more by itself when a known start countdown ends (whatever its length) | to say whether that game is running, waiting in its lobby or over, before you open it |
 
 **Clan hub** (an extension page, opened from the popup's *Tools* tab or the
 dashboard's clan section; same agreement as above, nothing is asked before it).
@@ -107,7 +108,9 @@ The extension reads OpenFront's pages in your browser in order to work: player
 names, lobby settings, your username and clan tag from the page's own storage, your per-game
 public client id and public player id, and, while a game runs, who owns which
 part of the map and every player's name, colour and share of the land (for the
-timelapse, when it records), and your team's roster with each player's
+timelapse, when it records; and, when you watch a game as a spectator, for the
+caster panel and the caster overlay - the names the game shows you, so
+OpenFront's "Hidden Names" stays in force), and your team's roster with each player's
 per-game number and the emoji messages between you and your teammates (for the
 team channel, when it is on). Of these, only what is listed above ever leaves
 the browser. It only reads: it never changes the game and sends no input to
@@ -136,7 +139,9 @@ companion launcher, see the end of this section):
   chat mute list, the last
   diagnostic report shown in the popup (site name only, no page address; it can
   list the player names from the last scan that had no statistics or whose
-  lookup failed) and a few interface preferences.
+  lookup failed), a few interface preferences, and the id of the last game the
+  *Observer* page notified you about with the time (so several observer tabs
+  send one notification per game).
 - **`chrome.storage.session`** (memory only, gone when the browser closes) - the
   per-game chat key, and for the team channel the teammate keys you verified
   in that game, used verification ids, the time of the newest team message
@@ -160,6 +165,24 @@ companion launcher, see the end of this section):
   drawn without them. While an overlay is open, the openfront.io page can see
   that it is (a `data-ofr-overlay="on"` mark on the page, which tells the
   extension's page script to collect the figures).
+  When the game is over (never while it is being played), the replay: the
+  game's timelapse as a GIF (`overlayReplay`, at most 1.5 MB, written once per
+  game; the previous game's recap image and replay are removed before a new
+  game's are written; fewer frames and a smaller picture until it fits,
+  otherwise only a note that it was skipped), drawn without player names in streamer mode or while the
+  overlay hides your name, never for a replay of an old game, removed with the
+  rest when the overlay closes. **Observer mode**: while you watch a game (a
+  spectator), the running game entry also holds that game's leaderboard (up to
+  ten players: the names the game shows, their team, land share, colour and,
+  when known, a rank band), team totals and the last eliminations; with
+  streamer mode or the overlay's "name" switch off, without the players'
+  names. The overlay's *delay* (90 s by default for the caster card, and for
+  the other cards whenever the game shown is one you watch) keeps what it
+  received - the game, and your session and rank after a game - in the overlay
+  page's memory only. "Watching" is a spectator's seat as the server decides
+  it (a replay, *Spectate* picked in the lobby, or not on the game's roster),
+  never a game you play - not during its spawn phase, not after you are
+  eliminated.
 - **Tournaments** - in `chrome.storage.local`: the tournaments you create or
   import (name, format, scoring, participant names, clan tags and player
   names you type or pick, the game ids you add, your manual choices; at most

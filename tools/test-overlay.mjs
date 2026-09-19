@@ -30,9 +30,9 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 console.log("options");
 {
   const d = plain(O.parseOptions(""));
-  check("defaults", eq(d, { widgets: ["rank", "live", "recap"], bg: "transparent", scale: 1, pos: "tr", recap: 20, name: true, streamer: false, edit: false, demo: false }), JSON.stringify(d));
+  check("defaults", eq(d, { widgets: ["rank", "live", "recap"], bg: "transparent", scale: 1, pos: "tr", recap: 20, replay: 25, delay: 0, delayAuto: true, name: true, streamer: false, edit: false, demo: false }), JSON.stringify(d));
   const o = plain(O.parseOptions("?w=live,rank,live,bogus&bg=green&scale=1.25&pos=bl&recap=45&name=0&streamer=1&edit=1"));
-  check("all options", eq(o, { widgets: ["live", "rank"], bg: "green", scale: 1.25, pos: "bl", recap: 45, name: false, streamer: true, edit: true, demo: false }), JSON.stringify(o));
+  check("all options", eq(o, { widgets: ["live", "rank"], bg: "green", scale: 1.25, pos: "bl", recap: 45, replay: 25, delay: 0, delayAuto: true, name: false, streamer: true, edit: true, demo: false }), JSON.stringify(o));
   check("widget order kept, duplicates and unknowns dropped", eq(o.widgets, ["live", "rank"]));
   check("hash overrides the query", O.parseOptions("?bg=green&pos=tl", "#bg=dark").bg === "dark" && O.parseOptions("?bg=green&pos=tl", "#bg=dark").pos === "tl");
   check("bad values fall back", eq(plain(O.parseOptions("?bg=red&pos=middle&scale=abc&recap=x")), plain(O.parseOptions(""))));
@@ -82,7 +82,7 @@ console.log("live state");
   check("stale state is dropped", O.sanitizeLive({ ...good, at: now - O.LIVE_STALE_MS - 1 }, now) === null);
   check("bad game id is dropped", O.sanitizeLive({ ...good, gameId: "../x" }, now) === null && O.sanitizeLive({ ...good, gameId: 5 }, now) === null);
   check("not an object", O.sanitizeLive("x", now) === null && O.sanitizeLive(null, now) === null);
-  const bad = plain(O.sanitizeLive({ ...good, phase: "hacked", share: 7, place: 99, humans: 50, humansTotal: 3, seconds: -3, map: "A‮B<img src=x>".repeat(10), top: [{ share: "1" }, 5, null, { share: 0.2 }] }, now));
+  const bad = plain(O.sanitizeLive({ ...good, phase: "hacked", share: 7, place: 99, humans: 50, humansTotal: 3, seconds: -3, map: "A\u202eB<img src=x>".repeat(10), top: [{ share: "1" }, 5, null, { share: 0.2 }] }, now));
   check("unknown phase -> playing", bad.phase === "playing");
   check("share clamped to 1", bad.share === 1);
   check("a place past the field is dropped", bad.place === null);
@@ -171,6 +171,21 @@ console.log("recap card");
   check("never over a different running game", O.recapState(recap, nextGame, 20, now).show === false);
   check("but fine over its own finished game", O.recapState(recap, { gameId: "AbCd1234", phase: "ended" }, 20, now).show === true);
 
+  // #2: with a delay the page asks at vnow = now - delay: a card made after vnow waits
+  for (const delay of [30, 90]) {
+    const at = now; // the card was made now; the delayed stream is `delay` s behind
+    const card = { ...recap, at };
+    const early = plain(O.recapState(card, { gameId: "AbCd1234", phase: "watching" }, 20, now + 10000 - delay * 1000));
+    check(`delay ${delay}: not before the delayed stream reaches the end`, early.show === false && early.startsIn === (delay - 10) * 1000, JSON.stringify(early));
+    const opts = plain(O.parseOptions(`?delay=${delay}`));
+    const lv = { gameId: "AbCd1234", phase: "playing" };
+    check(`delay ${delay}: ...so the (delayed) live card stays up meanwhile`, eq(plain(O.layout(opts, { rank: { kind: "ok" }, session: { games: 1 }, live: lv, recap: card }, now + 10000 - delay * 1000)), ["rank", "live"]));
+    const due = plain(O.recapState(card, { gameId: "AbCd1234", phase: "ended" }, 20, now + delay * 1000 - delay * 1000));
+    check(`delay ${delay}: shown once it does, for its full time`, due.show === true && due.frac === 1, JSON.stringify(due));
+    check(`delay ${delay}: then gone`, plain(O.recapState(card, null, 20, now + (delay + 20) * 1000 - delay * 1000)).show === false);
+  }
+  check("a card from far in the future is not waited for", plain(O.recapState({ ...recap, at: now + (O.MAX_DELAY + 120) * 1000 }, null, 20, now)).startsIn === undefined);
+
   // name=0 / streamer mode: only a card drawn masked
   check("the masked flag is kept, and only a real true counts", recap.streamer === false && plain(O.sanitizeRecap({ gameId: "AbCd1234", at: now, png, streamer: true })).streamer === true && plain(O.sanitizeRecap({ gameId: "AbCd1234", at: now, png, streamer: "yes" })).streamer === false);
   const maskedCard = plain(O.sanitizeRecap({ gameId: "AbCd1234", at: now, png, streamer: true }));
@@ -210,13 +225,13 @@ console.log("publishing (content.js)");
   check("content.js has the <overlay-pure> block", from > 0 && to > from);
   const C = { Number, Math, JSON };
   vm.createContext(C);
-  vm.runInContext(`${content.slice(from, to)}\nthis.P = { OVERLAY_STALE_MS, OVERLAY_LIVE_STALE_MS, OVERLAY_KEYS, overlayLabel, overlayShare, overlaySignature, overlayMayWrite, overlayMayRemove };`, C);
+  vm.runInContext(`${content.slice(from, to)}\nthis.P = { OVERLAY_STALE_MS, OVERLAY_LIVE_STALE_MS, OVERLAY_KEYS, OVERLAY_REPLAY_MAX, REPLAY_TRIES, replayFirstPlan, replayNextPlan, overlayLabel, overlayShare, overlaySignature, overlayMayWrite, overlayMayRemove };`, C);
   const P = C.P;
   check("same live stale limit as the page", P.OVERLAY_LIVE_STALE_MS === O.LIVE_STALE_MS);
-  check("everything published is cleared", eq(plain(P.OVERLAY_KEYS).sort(), ["overlayLive", "overlayMask", "overlayRecap", "overlaySelf"]));
+  check("everything published is cleared", eq(plain(P.OVERLAY_KEYS).sort(), ["overlayLive", "overlayMask", "overlayRecap", "overlayReplay", "overlaySelf"]));
 
   // labels: the same rule on both sides
-  const samples = ["World", "Gulf of St. Lawrence", "Baikal (Nuke Wars)", "Free For All", "Team", " Europe ", "", "twitch.tv/x !!", "<b>x</b>", "a".repeat(41), "Ünïcode", "A‮B", "x\ny", 5, null];
+  const samples = ["World", "Gulf of St. Lawrence", "Baikal (Nuke Wars)", "Free For All", "Team", " Europe ", "", "twitch.tv/x !!", "<b>x</b>", "a".repeat(41), "Ünïcode", "A\u202eB", "x\ny", 5, null];
   check("overlayLabel = the page's label rule", samples.every((s) => P.overlayLabel(s) === O.label(s)), JSON.stringify(samples.map((s) => [P.overlayLabel(s), O.label(s)])));
 
   check("shares rounded to 3 decimals and clamped", P.overlayShare(0.12345) === 0.123 && P.overlayShare(0.12351) === 0.124 && P.overlayShare(3) === 1 && P.overlayShare(-1) === 0 && P.overlayShare(null) === null && P.overlayShare(NaN) === null);
@@ -253,9 +268,239 @@ console.log("publishing (content.js)");
   check("two tabs on screen: no ping-pong", flips === 0 && stored.owner === "A", `${flips} flips, owner ${stored?.owner}`);
 }
 
+// ---- observer mode: caster card, delay, replay ----------------------------------------------
+console.log("caster options and delay");
+{
+  const c = plain(O.parseOptions("?w=caster"));
+  check("w=caster -> delay 90 by default", c.delay === O.CASTER_DELAY && O.CASTER_DELAY === 90 && eq(c.widgets, ["caster"]), JSON.stringify(c));
+  check("no caster card -> no delay", O.parseOptions("?w=rank,live").delay === 0 && O.parseOptions("").delay === 0);
+  check("delay=0 turns it off with the caster card", O.parseOptions("?w=caster&delay=0").delay === 0);
+  check("delay set by hand, also without the caster card", O.parseOptions("?w=caster&delay=45").delay === 45 && O.parseOptions("?delay=30").delay === 30);
+  check("delay clamped 0..600 and rounded", O.parseOptions("?w=caster&delay=9999").delay === 600 && O.parseOptions("?w=caster&delay=-5").delay === 0 && O.parseOptions("?delay=12.4").delay === 12);
+  check("junk delay -> the default", O.parseOptions("?w=caster&delay=abc").delay === 90 && O.parseOptions("?delay=").delay === 0);
+  check("replay seconds clamped, 0 = off", O.parseOptions("?replay=0").replay === 0 && O.parseOptions("?replay=9999").replay === 600 && O.parseOptions("?replay=x").replay === 25);
+  const both = plain(O.parseOptions("?w=rank,caster,recap&delay=120&replay=40&pos=bl"));
+  check("widget order with the caster card", eq(both.widgets, ["rank", "caster", "recap"]));
+  check("round trip: caster, delay, replay", eq(plain(O.parseOptions(O.buildQuery(both))), both), O.buildQuery(both));
+  check("the default delay of the caster card is not written out", O.buildQuery(plain(O.parseOptions("?w=caster"))) === "?w=caster", O.buildQuery(plain(O.parseOptions("?w=caster"))));
+  check("delay=0 with the caster card is written out", O.buildQuery(plain(O.parseOptions("?w=caster&delay=0"))) === "?w=caster&delay=0");
+  check("an OBS address keeps delay and replay", /delay=120/.test(O.buildQuery(both, { forObs: true })) && /replay=40/.test(O.buildQuery(both, { forObs: true })));
+  check("the worker's hash filter accepts the caster address", /^#[\w=&%.-]{0,200}$/.test(`#${O.buildQuery({ ...both, bg: "green", edit: true }).slice(1)}`));
+
+  // #11: a watched game is delayed with the default cards too
+  check("no delay= in the address: automatic", O.parseOptions("").delayAuto === true && O.parseOptions("?w=caster").delayAuto === true && O.parseOptions("?delay=0").delayAuto === false && O.parseOptions("?delay=abc").delayAuto === true);
+  check("delay=0 set by hand is written out even with the default cards (it keeps a watched game undelayed)", O.buildQuery(plain(O.parseOptions("?delay=0"))) === "?delay=0" && plain(O.parseOptions(O.buildQuery(plain(O.parseOptions("?delay=0"))))).delayAuto === false);
+  const eff = (q, watched) => O.effectiveDelay(plain(O.parseOptions(q)), watched);
+  check("default cards: 0 for your own game, 90 s for a game you watch", eff("", false) === 0 && eff("", true) === O.CASTER_DELAY);
+  check("caster card: 90 s either way", eff("?w=caster", false) === 90 && eff("?w=caster", true) === 90);
+  check("a delay set by hand always wins", eff("?delay=0", true) === 0 && eff("?delay=30", true) === 30 && eff("?w=caster&delay=0", true) === 0 && eff("?delay=45", false) === 45);
+  check("options from before delayAuto: a non-default delay counts as set by hand", O.effectiveDelay({ widgets: ["rank"], delay: 20 }, true) === 20 && O.effectiveDelay({ widgets: ["rank"], delay: 0 }, true) === 90);
+  const watched = { gameId: "AbCd1234", phase: "watching" };
+  const mine = { gameId: "AbCd1234", phase: "playing" };
+  check("a watched game: phase 'watching' or caster data", O.isWatched(watched) && O.isWatched({ phase: "ended", caster: { board: [] } }) && !O.isWatched(mine) && !O.isWatched(null));
+  const t0 = 1_700_000_000_000;
+  let buf = O.delayPush([], watched, t0, 100000);
+  buf = O.delayPush(buf, null, t0 + 5000, 100000);
+  check("spectated: now, or still playing out of the buffer", O.spectated([], watched) && O.spectated(buf, null) && !O.spectated(O.delayPush([], mine, t0, 100000), mine) && !O.spectated(null, null));
+}
+
+console.log("delayed rank card (overlay.js)");
+{
+  // the rank card's buffers: the first value is history (shown at once, got 0), later
+  // ones as late as the game cards
+  const t0 = 1_700_000_000_000;
+  const D = 90000;
+  let s = O.delayPush([], { games: 2 }, 0, D + 10000);
+  s = O.delayPush(s, { games: 3 }, t0, D + 10000);
+  check("a game recorded just now: today's pips still show the old count", plain(O.delayPick(s, t0 + 10000, D)).games === 2);
+  check("...and the new one when the delayed stream gets there", plain(O.delayPick(s, t0 + D, D)).games === 3);
+  check("the first value shows at once", plain(O.delayPick(O.delayPush([], { games: 1 }, 0, D), t0, D)).games === 1);
+  const page = fs.readFileSync(path.join(ROOT, "src/overlay.js"), "utf8");
+  check("overlay.js: session and rank lookups go through the delay buffers", /delayed\("infoBuf", state\.info, now, delayMs\)/.test(page) && /delayed\("sessionBuf", state\.session, now, delayMs\)/.test(page) && /hold\("sessionBuf"/.test(page) && /hold\("infoBuf"/.test(page));
+  check("overlay.js: the delay in force is the effective one (a watched game with the default cards)", /O\.effectiveDelay\(opts, O\.spectated\(state\.buffer, state\.live\)\)/.test(page) && !/opts\.delay \* 1000/.test(page));
+  check("overlay.js: a recap still to come keeps the page ticking", /rs\.startsIn != null/.test(page));
+}
+
+console.log("delay buffer");
+{
+  const t0 = 1_700_000_000_000;
+  let buf = [];
+  const D = 90000;
+  for (let s = 0; s <= 200; s += 2) buf = O.delayPush(buf, { n: s }, t0 + s * 1000, D);
+  check("nothing older than needed is kept", buf.length <= D / 2000 + 3, `${buf.length} entries`);
+  check("pick: the state from 90 s ago", plain(O.delayPick(buf, t0 + 200000, D))?.n === 110);
+  check("pick: between two writes, the older one", plain(O.delayPick(buf, t0 + 201500, D))?.n === 110);
+  check("pick: nothing that old yet", O.delayPick(O.delayPush([], { n: 1 }, t0, D), t0 + 1000, D) === null);
+  check("pending while a newer state waits", O.delayPending(O.delayPush([], { n: 1 }, t0, D), t0 + 1000, D) === true);
+  let gone = O.delayPush(buf, null, t0 + 202000, D);
+  check("a game that ended is played out late too", plain(O.delayPick(gone, t0 + 250000, D))?.n === 160 && O.delayPick(gone, t0 + 292000, D) === null);
+  check("delay 0 = the newest", plain(O.delayPick(buf, t0 + 200000, 0))?.n === 200);
+  check("junk in, nothing out", O.delayPick(null, t0, D) === null && eq(plain(O.delayPush(null, { n: 1 }, NaN, D)), []));
+  gone = O.delayPush(gone, { n: 999 }, t0 + 100000, D); // a clock that went back
+  check("an entry from the future is not kept past a newer one", plain(gone).every((e, i, a) => i === 0 || e.got >= a[i - 1].got));
+  let big = [];
+  for (let i = 0; i < 5000; i++) big = O.delayPush(big, { i }, t0 + i * 10, 600000);
+  check("bounded in memory", big.length <= 2400, `${big.length}`);
+}
+
+console.log("caster card data");
+{
+  const now = 1_700_000_000_000;
+  const caster = {
+    teamGame: true,
+    playersAlive: 19,
+    humansAlive: 11,
+    humansTotal: 42,
+    more: 3,
+    board: [
+      { place: 1, name: "[OFP] Kestrel", team: "Red", share: 0.21, frac: 1, alive: true, rgb: [224, 68, 62], band: "elite" },
+      { place: null, name: "A\u202eB <img src=x onerror=alert(1)>", team: "Blue", share: 0, frac: 0, alive: false, outAt: 612, rgb: [300, -5, "x"], band: "godlike" },
+      "junk",
+    ],
+    teams: [{ name: "Red", share: 0.4, frac: 1, alive: 3, total: 4, rgb: [224, 68, 62] }, { name: "<b>x</b>", share: 0.2 }],
+    feed: [{ at: 612, name: "Anon1", human: true, rgb: [1, 2, 3] }, { at: "x" }],
+  };
+  const l = plain(O.sanitizeLive({ gameId: "AbCd1234", at: now, phase: "watching", seconds: 700, caster }, now));
+  const c = l.caster;
+  check("caster data passes", c && c.board.length === 2 && c.teams.length === 1 && c.feed.length === 1 && c.humansAlive === 11, JSON.stringify(c));
+  check("names: bidi overrides out, text kept as text (drawn with textContent)", c.board[1].name === "AB <img src=x onerror=alert(1)>", JSON.stringify(c.board[1].name));
+  check("colours clamped, junk colour dropped", c.board[0].rgb.join() === "224,68,62" && c.board[1].rgb === null);
+  check("unknown rank band dropped", c.board[0].band === "elite" && c.board[1].band === null);
+  check("team names: plain words only", c.teams[0].name === "Red");
+  check("eliminated at", c.board[1].outAt === 612 && c.board[1].alive === false);
+  check("no caster data: none", plain(O.sanitizeLive({ gameId: "AbCd1234", at: now }, now)).caster === null);
+  check("bad caster data: none", plain(O.sanitizeLive({ gameId: "AbCd1234", at: now, caster: { board: "x" } }, now)).caster === null);
+  const long = plain(O.sanitizeCaster({ board: Array.from({ length: 40 }, (_, i) => ({ place: i + 1, name: "x".repeat(99), share: 0.01 })), feed: Array.from({ length: 40 }, () => ({ at: 1 })) }));
+  check("capped: 12 rows, 8 eliminations, 40-character names", long.board.length === 12 && long.feed.length === 8 && long.board[0].name.length === 40);
+}
+
+console.log("replay");
+{
+  const now = 1_700_000_000_000;
+  const gif = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+  const r = plain(O.sanitizeReplay({ gameId: "AbCd1234", at: now, gif, streamer: false }));
+  check("a good replay passes", r && r.gif === gif && r.streamer === false);
+  check("only a GIF", O.sanitizeReplay({ gameId: "AbCd1234", at: now, gif: "data:image/png;base64,AA==" }) === null && O.sanitizeReplay({ gameId: "AbCd1234", at: now, gif: "https://x/y.gif" }) === null && O.sanitizeReplay({ gameId: "AbCd1234", at: now, gif: 'data:image/gif;base64,AA" onload="x' }) === null);
+  check("too big", O.sanitizeReplay({ gameId: "AbCd1234", at: now, gif: `data:image/gif;base64,${"A".repeat(O.MAX_GIF)}` }) === null);
+  check("a skipped one carries its note", eq(plain(O.sanitizeReplay({ gameId: "AbCd1234", at: now, gif: null, note: "size" })), { gameId: "AbCd1234", at: now, gif: null, streamer: false, note: "size" }));
+  check("unknown note dropped", plain(O.sanitizeReplay({ gameId: "AbCd1234", at: now, note: "<b>" })).note === null);
+  const masked = plain(O.sanitizeReplay({ gameId: "AbCd1234", at: now, gif, streamer: true }));
+  check("masking like the recap card", O.replayFor(r, false) === r && O.replayFor(r, true) === null && O.replayFor(masked, true) === masked);
+
+  const opts = plain(O.parseOptions(""));
+  const recap = { gameId: "AbCd1234", at: now, png: "data:image/png;base64,AA==" };
+  const ended = { gameId: "AbCd1234", phase: "ended" };
+  const S = (o, t, rc = recap, lv = ended) => plain(O.replayState(r, rc, lv, o, t));
+  check("after the recap card: not yet", S(opts, now + 10000).show === false && S(opts, now + 10000).startsIn === 10000);
+  check("...then for replay seconds", S(opts, now + 20000).show === true && S(opts, now + 44000).show === true && Math.abs(S(opts, now + 32500).frac - 0.5) < 1e-9);
+  check("...then gone", S(opts, now + 45000).show === false && S(opts, now + 45000).done === true);
+  check("no recap card: right away", S(opts, now + 1000, null).show === true);
+  check("recap cards off: right away", S({ ...opts, widgets: ["rank", "live"] }, now + 1000).show === true);
+  check("recap=0 (until the next game): no replay", S({ ...opts, recap: 0 }, now + 3600000).show === false);
+  check("replay=0: off", S({ ...opts, replay: 0 }, now + 21000).show === false);
+  check("never over a different game being played", S(opts, now + 21000, recap, { gameId: "Next5678", phase: "playing" }).show === false);
+  check("a late recap card pushes the replay back", plain(O.replayState(r, { ...recap, at: now + 15000 }, ended, opts, now + 21000)).show === false);
+  check("a skipped replay never shows", plain(O.replayState({ ...r, gif: null }, null, ended, opts, now + 1000)).show === false);
+
+  const L = (o, st, t) => plain(O.layout(o, st, t));
+  const caster = { board: [], teams: [], feed: [] };
+  check("caster card for a watched game", eq(L({ ...opts, widgets: ["caster"] }, { live: { gameId: "AbCd1234", phase: "watching", caster } }, now), ["caster"]));
+  check("no caster card while you play", eq(L({ ...opts, widgets: ["caster"] }, { live: { gameId: "AbCd1234", phase: "playing", caster: null } }, now), []));
+  check("recap, then replay, then gone", eq(L(opts, { live: ended, recap, replay: r }, now + 5000), ["recap"]) && eq(L(opts, { live: ended, recap, replay: r }, now + 25000), ["replay"]) && eq(L(opts, { live: ended, recap, replay: r }, now + 60000), []));
+  check("caster variant: replay after the game, then gone", eq(L({ ...opts, widgets: ["caster"] }, { live: { ...ended, caster }, replay: r }, now + 1000), ["replay"]) && eq(L({ ...opts, widgets: ["caster"] }, { live: { ...ended, caster }, replay: r }, now + 30000), []));
+  check("a game still running keeps its card after an old replay", eq(L({ ...opts, widgets: ["caster"] }, { live: { gameId: "AbCd1234", phase: "watching", caster }, replay: r }, now + 30000), ["caster"]));
+}
+
+console.log("replay size (content.js)");
+{
+  const content = fs.readFileSync(path.join(ROOT, "src/content.js"), "utf8");
+  const C = { Number, Math, JSON };
+  vm.createContext(C);
+  vm.runInContext(`${content.slice(content.indexOf("// <overlay-pure>"), content.indexOf("// </overlay-pure>"))}\nthis.P = { OVERLAY_REPLAY_MAX, REPLAY_TRIES, replayFirstPlan, replayNextPlan };`, C);
+  const P = C.P;
+  check("same size cap on both sides", P.OVERLAY_REPLAY_MAX === O.MAX_GIF);
+  check("first try: up to 150 frames, twice the size", eq(plain(P.replayFirstPlan(360)), { maxFrames: 150, maxScale: 2 }) && eq(plain(P.replayFirstPlan(40)), { maxFrames: 40, maxScale: 2 }));
+  check("it fits: done", P.replayNextPlan({ maxFrames: 150, maxScale: 2 }, P.OVERLAY_REPLAY_MAX) === null && P.replayNextPlan({ maxFrames: 150, maxScale: 2 }, 1000) === null);
+  const a = plain(P.replayNextPlan({ maxFrames: 150, maxScale: 2 }, Math.round(P.OVERLAY_REPLAY_MAX * 1.2)));
+  check("a bit over: fewer frames, same size", a.maxScale === 2 && a.maxFrames < 150 && a.maxFrames >= 100, JSON.stringify(a));
+  const b = plain(P.replayNextPlan({ maxFrames: 150, maxScale: 2 }, P.OVERLAY_REPLAY_MAX * 6));
+  check("far over: the recorded size, more frames back", b.maxScale === 1 && b.maxFrames > 40, JSON.stringify(b));
+  check("hopeless: skipped", plain(P.replayNextPlan({ maxFrames: 40, maxScale: 1 }, 20_000_000)).skip === true);
+  // a model of the encoder: bytes ~ frames x pixels; every plan either shrinks or stops
+  const model = (p) => p.maxFrames * (p.maxScale === 2 ? 60000 : 20000);
+  let plan = plain(P.replayFirstPlan(360));
+  let tries = 0;
+  let size = model(plan);
+  while (tries < P.REPLAY_TRIES) {
+    const next = P.replayNextPlan(plan, size);
+    tries++;
+    if (!next || next.skip) break;
+    check(`plan ${tries} makes progress`, next.maxFrames < plan.maxFrames || next.maxScale < plan.maxScale, JSON.stringify([plan, next]));
+    plan = plain(next);
+    size = model(plan);
+  }
+  check("a big game fits within the tries", size <= P.OVERLAY_REPLAY_MAX && tries <= P.REPLAY_TRIES, `${size} after ${tries}`);
+
+  // #10: storage room
+  check("the replay is at most 1.5 MB of storage", O.MAX_GIF <= 1_500_000 && P.OVERLAY_REPLAY_MAX <= 1_500_000);
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
+  const TOURNEY_CACHE = 3_000_000; // tournament-core.js CACHE_CAPS.bytes
+  check("manifest: Chrome 114+ (storage.local is 10 MB there, 5 MB before)", manifest.minimum_chrome_version === "114");
+  check("recap + replay + tournament cache stay well under the 10 MB of storage.local", O.MAX_GIF + O.MAX_PNG + TOURNEY_CACHE <= 7_000_000);
+  check("...and the tournament cache cap is still that", /bytes: 3_000_000/.test(fs.readFileSync(path.join(ROOT, "src/tournament-core.js"), "utf8")));
+}
+
+console.log("overlay images in storage (content.js)");
+{
+  // overlayMakeRoom / overlayPutCard, run as they are against a stand-in storage that
+  // records every change event the way chrome.storage.onChanged would hand it out
+  const content = fs.readFileSync(path.join(ROOT, "src/content.js"), "utf8");
+  const from = content.indexOf("const OVERLAY_CARD_KEYS");
+  const end = content.indexOf("\n}\n", content.indexOf("async function overlayPutCard")) + 3;
+  check("content.js has overlayMakeRoom / overlayPutCard", from > 0 && end > from);
+  check("every recap / replay write goes through overlayPutCard", !/chrome\.storage\.local\.set\(\{ overlay(Recap|Replay):/.test(content) && (content.match(/overlayPutCard\("overlayReplay"/g) ?? []).length === 3 && (content.match(/overlayPutCard\("overlayRecap"/g) ?? []).length === 1);
+  const store = {};
+  const events = [];
+  const chrome = {
+    storage: {
+      local: {
+        get: async (k) => ({ [k]: store[k] }),
+        remove: async (keys) => {
+          const ev = {};
+          for (const k of [].concat(keys)) if (k in store) (ev[k] = { oldValue: store[k] }), delete store[k];
+          if (Object.keys(ev).length) events.push(ev);
+        },
+        set: async (items) => {
+          const ev = {};
+          for (const [k, v] of Object.entries(items)) (ev[k] = { oldValue: store[k], newValue: v }), (store[k] = v);
+          events.push(ev);
+        },
+      },
+    },
+  };
+  const C = { chrome, Promise, Array, Object, JSON };
+  vm.createContext(C);
+  vm.runInContext(`${content.slice(from, end)}\nthis.put = overlayPutCard; this.cardGame = overlayCardGame;`, C);
+  const img = (n) => "x".repeat(n);
+  store.overlayRecap = { gameId: "Game0001", png: img(10) };
+  store.overlayReplay = { gameId: "Game0001", gif: img(10) };
+  await C.put("overlayRecap", { gameId: "Game0002", png: img(10) });
+  check("a new game's recap: the previous game's recap and replay go first", store.overlayRecap.gameId === "Game0002" && !("overlayReplay" in store), JSON.stringify(Object.keys(store)));
+  await C.put("overlayReplay", { gameId: "Game0002", gif: img(10) });
+  check("...its replay then keeps the recap of the same game", store.overlayRecap?.gameId === "Game0002" && store.overlayReplay?.gameId === "Game0002");
+  events.length = 0;
+  await C.put("overlayReplay", { gameId: "Game0002", gif: img(12), streamer: true });
+  check("the replay made again (masking): removed first, then written", events.length === 2 && "overlayReplay" in events[0] && events[0].overlayReplay.newValue === undefined && events[1].overlayReplay.oldValue === undefined, JSON.stringify(events.map((e) => Object.keys(e))));
+  events.length = 0;
+  await C.put("overlayReplay", { gameId: "Game0003", gif: img(10) });
+  check("never an old and a new image in one change event", events.length >= 2 && events.every((e) => !Object.values(e).some((c) => c.oldValue && c.newValue)), JSON.stringify(events.map((e) => Object.keys(e))));
+  check("the stored cards are known afterwards (no re-read)", C.cardGame.overlayReplay === "Game0003" && C.cardGame.overlayRecap === null);
+}
+
 console.log("sample data");
 {
   const d = O.demo(1_700_000_000_000);
+  check("demo watched game passes the checks, with its caster card", !!plain(O.sanitizeLive(d.watch, 1_700_000_000_000))?.caster?.board?.length);
   check("demo live passes the checks", !!O.sanitizeLive(d.live, 1_700_000_000_000));
   check("demo rank is ranked", O.rankView(d.info, S).kind === "ok");
   check("demo session counts", O.sessionView(d.session, new Date(1_700_000_000_000).toDateString()).games === 5);

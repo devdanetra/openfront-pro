@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "OpenFront Pro",
-  "version": "5.10.0",
+  "version": "5.11.0",
   "description": "Unofficial. Player rankings, form, map preview and scouting for OpenFront lobbies. Not affiliated with OpenFront.",
+  "minimum_chrome_version": "114",
   "permissions": [
     "notifications",
     "scripting",
@@ -39,6 +40,8 @@
         "src/timelapse.js",
         "src/recap.js",
         "src/chat.js",
+        "src/observer-core.js",
+        "src/caster.js",
         "src/content.js"
       ],
       "css": [

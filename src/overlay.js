@@ -29,7 +29,36 @@
     session: null,
     live: null, // raw overlayLive
     recap: null, // sanitised overlayRecap
+    replay: null, // sanitised overlayReplay
+    // every overlayLive received, with when it came (memory only): what `delay` plays late
+    buffer: [],
+    // ...and the same for what the rank card shows of your games (today's pips, the
+    // streak and rank after a game): the first value is history and shows at once
+    sessionBuf: [],
+    infoBuf: [],
   };
+  // a delay left to its default can become 90 s at any moment (a watched game): keep that much
+  const keepMs = () => (Math.max(opts.delay, opts.delayAuto ? O.CASTER_DELAY : 0, 30) + 10) * 1000;
+  // the delay in force now, in seconds
+  const delayNow = () => (opts.demo ? 0 : O.effectiveDelay(opts, O.spectated(state.buffer, state.live)));
+  function receiveLive(raw, got = Date.now()) {
+    state.live = raw ?? null;
+    state.buffer = O.delayPush(state.buffer, state.live, got, keepMs());
+  }
+  function hold(key, value, got = Date.now()) {
+    const buf = state[key];
+    state[key] = O.delayPush(buf, value, buf.length ? got : 0, keepMs());
+  }
+  function setInfo(info) {
+    state.info = info;
+    if (info !== undefined) hold("infoBuf", info);
+  }
+  function setSession(session) {
+    state.session = session ?? null;
+    hold("sessionBuf", state.session);
+  }
+  // what the rank card shows: the newest, or with a delay the one from that long ago
+  const delayed = (key, newest, now, delayMs) => (delayMs > 0 && state[key].length ? O.delayPick(state[key], now, delayMs) : newest);
 
   // ---- small DOM helpers (static class names; text via textContent) ------------
   function el(tag, cls, text) {
@@ -55,6 +84,7 @@
     humans: ["M12 3.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8z", "M4 21c0-4.2 3.6-7.2 8-7.2s8 3 8 7.2z"],
     arrow: ["M4 10.5h11.2l-4.6-4.6L12 4.5l7 7-7 7-1.4-1.4 4.6-4.6H4z"],
     today: ["M7 2h2v2h6V2h2v2h3a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3zM5 9v10h14V9z", "M7 11h4v4H7z"],
+    clock: ["M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16z", "M11 6h2v5.6l3.7 2.2-1 1.7L11 12.7z"],
   };
   function flame(on) {
     const s = svg("svg", { viewBox: "0 0 20 24", class: "ov-flame", "data-on": String(on), "aria-hidden": "true" });
@@ -116,7 +146,7 @@
     const name = state.self?.name ?? null;
     const s = state.settings;
     if (!name || s.enabled === false || s.dataConsent !== true) {
-      state.info = name && s.dataConsent !== true ? { found: false, reason: "consent" } : null;
+      setInfo(name && s.dataConsent !== true ? { found: false, reason: "consent" } : null);
       render();
       return;
     }
@@ -130,7 +160,7 @@
       info = { found: false, reason: "error" };
     }
     if (lookupFor !== name) return; // the name changed meanwhile
-    state.info = info;
+    setInfo(info);
     render();
     // the worker's cache holds a hit for 10 minutes: ask again after that
     lookupTimer = setTimeout(() => lookupSelf(), 10 * 60 * 1000);
@@ -141,6 +171,7 @@
     if (name === (state.self?.name ?? null)) return;
     state.self = name ? { name } : null;
     state.info = undefined;
+    state.infoBuf = []; // someone else's rank: nothing of the old one to play out
     lookupSelf();
   }
 
@@ -153,10 +184,12 @@
     }
     applyTheme();
     try {
-      const local = await chrome.storage.local.get(["overlaySelf", "session", "overlayLive", "overlayRecap"]);
-      state.session = local.session ?? null;
-      state.live = local.overlayLive ?? null;
+      const local = await chrome.storage.local.get(["overlaySelf", "session", "overlayLive", "overlayRecap", "overlayReplay"]);
+      setSession(local.session);
+      const at = local.overlayLive?.at;
+      receiveLive(local.overlayLive, typeof at === "number" && at <= Date.now() ? at : Date.now());
       state.recap = O.sanitizeRecap(local.overlayRecap);
+      state.replay = O.sanitizeReplay(local.overlayReplay);
       setSelf(local.overlaySelf);
     } catch {
       // nothing stored yet
@@ -183,13 +216,14 @@
     // another overlay page closed and said so: this one is still open
     if (changes.overlayEnabled && !changes.overlayEnabled.newValue && !closing) beat();
     if (changes.overlaySelf) setSelf(changes.overlaySelf.newValue);
-    if (changes.overlayLive) state.live = changes.overlayLive.newValue ?? null;
+    if (changes.overlayLive) receiveLive(changes.overlayLive.newValue);
     if (changes.overlayRecap) state.recap = O.sanitizeRecap(changes.overlayRecap.newValue);
+    if (changes.overlayReplay) state.replay = O.sanitizeReplay(changes.overlayReplay.newValue);
     if (changes.session) {
-      state.session = changes.session.newValue ?? null;
+      setSession(changes.session.newValue);
       lookupSelf({ soon: true }); // a game was recorded: the rank may have moved
     }
-    if (changes.overlayLive || changes.overlayRecap || changes.session) render();
+    if (changes.overlayLive || changes.overlayRecap || changes.overlayReplay || changes.session) render();
   });
 
   // ---- heartbeat -----------------------------------------------------------------
@@ -233,17 +267,40 @@
   // ---- cards -----------------------------------------------------------------------
   // Streamer mode: no name and no rank (gauge, drift) - the streak and today's
   // games stay. name=0 or streamer mode: only a recap card drawn masked.
+  // `vnow` is the time the game cards show: `delay` seconds ago (the delay against
+  // ghosting; 90 s by default while the game on the overlay is one you watch). The
+  // live state then comes from this page's buffer, the recap and the replay appear
+  // that much later too, and so does what the rank card shows of a game that just
+  // ended (today's pips, the streak, the rank).
   function view(now) {
     const d = opts.demo ? O.demo(now) : null;
-    const rank = O.rankView(d ? d.info : state.info, S);
-    const session = O.sessionView(d ? d.session : state.session, today(), { maxPips: 10 });
+    const delay = delayNow();
+    const delayMs = delay * 1000;
+    const rank = O.rankView(d ? d.info : delayed("infoBuf", state.info, now, delayMs), S);
+    const session = O.sessionView(d ? d.session : delayed("sessionBuf", state.session, now, delayMs), today(), { maxPips: 10 });
     const hide = streamer();
+    const vnow = now - delayMs;
+    const raw = d ? (opts.widgets.includes("caster") ? d.watch : d.live) : delay ? O.delayPick(state.buffer, now, delayMs) : state.live;
+    let live = O.sanitizeLive(raw, vnow);
+    // this page hides names: none on the caster card either, whatever the tab sent
+    if (live?.caster && masked()) {
+      live = {
+        ...live,
+        caster: { ...live.caster, board: live.caster.board.map((r) => ({ ...r, name: null, band: null })), feed: live.caster.feed.map((f) => ({ ...f, name: f.human ? null : f.name })) },
+      };
+    }
     return {
+      vnow,
+      delay,
       name: showName() ? (d ? d.name : (state.self?.name ?? null)) : null,
       rank: hide ? O.hideRank(rank) : rank,
       session: hide ? { ...session, drift: null } : session,
-      live: O.sanitizeLive(d ? d.live : state.live, now),
+      live,
       recap: O.recapFor(state.recap, masked()),
+      replay: O.replayFor(state.replay, masked()),
+      waiting: !d && delay > 0 && !live && O.delayPending(state.buffer, now, delayMs),
+      // something newer than what shows is waiting in one of the buffers
+      pending: !d && delay > 0 && ["buffer", "sessionBuf", "infoBuf"].some((k) => O.delayPending(state[k], now, delayMs)),
     };
   }
 
@@ -393,6 +450,133 @@
     return card;
   }
 
+  // ---- observer mode: the watched game ----------------------------------------------
+  // A player's (or team's) colour from the game: a swatch, set as data.
+  function swatch(rgb, cls = "ov-sw") {
+    const s = el("span", cls);
+    if (Array.isArray(rgb)) s.style.setProperty("--ov-sw", `rgb(${rgb.join(" ")})`);
+    s.setAttribute("aria-hidden", "true");
+    return s;
+  }
+  const SKULL = ["M12 2.5c-4.7 0-8 3.2-8 7.6 0 2.6 1.2 4.6 3 5.8V19a1 1 0 0 0 1 1h1.5v-2h1.5v2h2v-2h1.5v2H16a1 1 0 0 0 1-1v-3.1c1.8-1.2 3-3.2 3-5.8 0-4.4-3.3-7.6-8-7.6zm-3.2 7a1.9 1.9 0 1 1 0 3.8 1.9 1.9 0 0 1 0-3.8zm6.4 0a1.9 1.9 0 1 1 0 3.8 1.9 1.9 0 0 1 0-3.8z"];
+  const PLAY = ["M8 5.5v13l10.5-6.5z"];
+  function casterCard(v, now) {
+    const l = v.live;
+    const c = l.caster;
+    const card = el("section", "ov-card ov-live ov-caster");
+    card.dataset.phase = l.phase;
+    card.setAttribute("aria-label", "Watched game: leaderboard and eliminations");
+    const head = el("div", "ov-head");
+    head.append(el("span", "ov-state", l.phase === "watching" ? "Live" : (PHASE_TEXT[l.phase] ?? "Live")));
+    head.append(el("span", "ov-where", [l.map, MODE_SHORT[l.mode] ?? l.mode].filter(Boolean).join(" · ")));
+    const clk = el("span", "ov-clock", O.clock(O.liveSeconds(l, now)));
+    clk.dataset.clock = "1";
+    head.append(clk);
+    card.append(head);
+
+    const meta = el("div", "ov-cmeta");
+    const chip = (paths, value, sub, title) => {
+      const s = el("span", "ov-cchip");
+      s.title = title;
+      s.append(icon(paths), el("b", null, value));
+      if (sub) s.append(el("small", null, sub));
+      return s;
+    };
+    if (c.humansAlive != null) meta.append(chip(ICONS.humans, String(c.humansAlive), c.humansTotal != null ? `/${c.humansTotal}` : null, "Humans still in"));
+    if (c.playersAlive != null) meta.append(chip(ICONS.land, String(c.playersAlive), null, "Players with land"));
+    card.append(meta);
+
+    if (c.teamGame && c.teams.length) {
+      const split = el("div", "ov-split");
+      split.setAttribute("role", "img");
+      split.setAttribute("aria-label", c.teams.map((t) => `${t.name} ${O.sharePct(t.share)}`).join(", "));
+      for (const t of c.teams) {
+        if (!(t.share > 0)) continue;
+        const seg = swatch(t.rgb, "ov-seg");
+        seg.style.flexGrow = String(t.share);
+        split.append(seg);
+      }
+      card.append(split);
+      const teams = el("div", "ov-teams");
+      for (const t of c.teams.slice(0, 8)) {
+        const row = el("div", "ov-team");
+        row.dataset.out = String(t.alive === 0);
+        const pips = el("span", "ov-tpips");
+        pips.title = `${t.alive} of ${t.total} still in`;
+        for (let i = 0; i < Math.min(t.total, 8); i++) {
+          const pip = el("span", "ov-tpip");
+          pip.dataset.on = String(i < t.alive);
+          pips.append(pip);
+        }
+        row.append(swatch(t.rgb), el("span", "ov-tname", t.name), pips, el("span", "ov-tpct", O.sharePct(t.share) ?? ""));
+        teams.append(row);
+      }
+      card.append(teams);
+    }
+
+    const board = el("ol", "ov-board");
+    board.setAttribute("aria-label", "Leaderboard by land");
+    for (const r of c.board.slice(0, c.teamGame ? 6 : 10)) {
+      const li = el("li", "ov-crow");
+      li.dataset.alive = String(r.alive);
+      const who = r.name ?? r.team ?? "Player";
+      const name = el("span", "ov-cname", who);
+      if (!r.name) name.dataset.masked = "true";
+      const cell = el("span", "ov-cwho");
+      cell.append(name);
+      if (r.band && r.alive) {
+        const dot = el("span", "ov-band");
+        dot.dataset.band = r.band;
+        dot.title = "World rank band";
+        cell.append(dot);
+      }
+      const bar = el("span", "ov-cbar");
+      const fill = el("span");
+      fill.style.width = `${(r.frac * 100).toFixed(1)}%`;
+      bar.append(fill);
+      li.append(el("span", "ov-cplace", r.alive ? String(r.place ?? "") : "✕"), swatch(r.rgb), cell, bar, el("span", "ov-cpct", r.alive ? (O.sharePct(r.share) ?? "") : r.outAt != null ? O.clock(r.outAt) : "out"));
+      board.append(li);
+    }
+    card.append(board);
+    if (c.more) card.append(el("div", "ov-cmore", `+${c.more}`));
+
+    if (c.feed.length) {
+      const feed = el("ol", "ov-feed");
+      feed.setAttribute("aria-label", "Eliminations, newest first");
+      for (const f of c.feed.slice(0, 4)) {
+        const li = el("li", "ov-out");
+        const who = f.name ?? f.team ?? (f.human ? "Player" : "Nation");
+        const name = el("span", "ov-cname", who);
+        if (!f.name) name.dataset.masked = "true";
+        li.append(icon(SKULL, "ov-skull"), el("span", "ov-otime", O.clock(f.at)), swatch(f.rgb), name);
+        feed.append(li);
+      }
+      card.append(feed);
+    }
+    return card;
+  }
+
+  // The replay: the game's timelapse GIF, after the recap card, for opts.replay s.
+  function replayCard(v, p) {
+    const card = el("section", "ov-card ov-recap ov-replay");
+    card.setAttribute("aria-label", "Replay of the game");
+    const img = el("img");
+    img.alt = "Replay of the game (timelapse)";
+    img.decoding = "async";
+    img.src = v.replay.gif; // a fresh element each time it shows: the GIF starts from its first frame
+    const tag = el("span", "ov-replay-tag");
+    tag.append(icon(PLAY), document.createTextNode("Replay"));
+    card.append(img, tag);
+    if (p.frac != null) {
+      const timer = el("div", "ov-timer");
+      const fill = el("span");
+      fill.style.width = `${(p.frac * 100).toFixed(1)}%`;
+      timer.append(fill);
+      card.append(timer);
+    }
+    return card;
+  }
+
   // Cards are rebuilt only when what they show changes, so their entry animation
   // plays once; the clock and the recap timer are updated in place every second.
   const shown = new Map(); // kind -> { node, sig }
@@ -400,9 +584,11 @@
   function render() {
     const now = Date.now();
     const v = view(now);
+    const vnow = v.vnow;
     const off = state.settings.enabled === false && !opts.demo;
-    const kinds = O.layout(opts, { live: v.live, recap: v.recap, rank: v.rank, session: v.session, off }, now);
-    const rs = O.recapState(v.recap, v.live, opts.recap, now);
+    const kinds = O.layout(opts, { live: v.live, recap: v.recap, rank: v.rank, session: v.session, replay: v.replay, off }, vnow);
+    const rs = O.recapState(v.recap, v.live, opts.recap, vnow);
+    const ps = O.replayState(v.replay, v.recap, v.live, opts, vnow);
     const nodes = [];
     for (const kind of kinds) {
       let sig;
@@ -411,9 +597,16 @@
         sig = JSON.stringify([v.name, v.rank, v.session]);
         build = () => rankCard(v);
       } else if (kind === "live") {
-        const { at, seconds, ...rest } = v.live;
+        const { at, seconds, caster, ...rest } = v.live;
         sig = JSON.stringify(rest);
-        build = () => liveCard(v, now);
+        build = () => liveCard(v, vnow);
+      } else if (kind === "caster") {
+        const { at, seconds, top, share, place, ...rest } = v.live;
+        sig = JSON.stringify(rest);
+        build = () => casterCard(v, vnow);
+      } else if (kind === "replay") {
+        sig = `${v.replay.gameId}|${v.replay.at}|${v.replay.streamer}|${v.replay.gif.length}|${v.replay.gif.slice(-24)}`;
+        build = () => replayCard(v, ps);
       } else {
         sig = `${v.recap.gameId}|${v.recap.at}|${v.recap.streamer}|${v.recap.png.length}|${v.recap.png.slice(-24)}`;
         build = () => recapCard(v, rs);
@@ -421,17 +614,18 @@
       let entry = shown.get(kind);
       if (!entry || entry.sig !== sig) {
         const node = build();
-        if (entry) node.style.animation = "none"; // an update, not an entrance
+        if (entry && kind !== "replay") node.style.animation = "none"; // an update, not an entrance
         entry = { node, sig };
         shown.set(kind, entry);
       }
-      if (kind === "live") {
+      if (kind === "live" || kind === "caster") {
         const c = entry.node.querySelector("[data-clock]");
-        if (c) c.textContent = O.clock(O.liveSeconds(v.live, now));
+        if (c) c.textContent = O.clock(O.liveSeconds(v.live, vnow));
       }
-      if (kind === "recap" && rs.frac != null) {
+      const timer = kind === "recap" ? rs : kind === "replay" ? ps : null;
+      if (timer && timer.frac != null) {
         const f = entry.node.querySelector(".ov-timer > span");
-        if (f) f.style.width = `${(rs.frac * 100).toFixed(1)}%`;
+        if (f) f.style.width = `${(timer.frac * 100).toFixed(1)}%`;
       }
       nodes.push(entry.node);
     }
@@ -439,9 +633,19 @@
     const same = nodes.length === cardsEl.children.length && nodes.every((n, i) => cardsEl.children[i] === n);
     if (!same) cardsEl.replaceChildren(...nodes);
 
-    // one timer while something moves (the clock, the recap countdown - and a live
-    // card also has to go by itself once its tab stops writing); none otherwise
-    const moving = Boolean(v.live) || (rs.show && rs.frac != null);
+    // "delayed 90s", small, while the game cards run late
+    const badge = $("delay");
+    badge.hidden = !(v.delay > 0) || off;
+    if (!badge.hidden) {
+      const txt = v.waiting ? `delayed ${v.delay}s · buffering` : `delayed ${v.delay}s`;
+      if (badge.lastChild?.textContent !== txt) badge.replaceChildren(icon(ICONS.clock), el("span", null, txt));
+      badge.title = "The game cards run this many seconds late, so viewers cannot pass live information to players in that game.";
+    }
+
+    // one timer while something moves (the clock, the recap / replay countdowns, a
+    // recap or a delayed state still to come - and a live card also has to go by
+    // itself once its tab stops writing); none otherwise
+    const moving = Boolean(v.live) || v.waiting || v.pending || (rs.show && rs.frac != null) || rs.startsIn != null || ps.show || ps.startsIn != null;
     if (moving && !ticker) ticker = setInterval(render, 1000);
     else if (!moving && ticker) {
       clearInterval(ticker);
@@ -463,15 +667,28 @@
     $("ed-scale").value = String(opts.scale);
     $("ed-scale-out").textContent = `${Math.round(opts.scale * 100)}%`;
     if (document.activeElement !== $("ed-recap")) $("ed-recap").value = String(opts.recap);
+    press($("ed-replay-on"), opts.replay > 0);
+    $("ed-replay").disabled = !(opts.replay > 0);
+    if (document.activeElement !== $("ed-replay")) $("ed-replay").value = String(opts.replay || O.DEFAULTS.replay);
+    if (document.activeElement !== $("ed-delay")) $("ed-delay").value = String(opts.delay);
     press($("ed-name"), showName());
     $("ed-name").disabled = streamer();
     press($("ed-demo"), opts.demo);
   }
 
+  const REPLAY_NOTES = {
+    size: "The last replay was skipped: even small it was too big to hand over.",
+    frames: "No replay for the last game: it needs Game > Timelapse on (with the recap and rank lookups) while the game runs.",
+    error: "The last replay could not be made.",
+  };
   // One line on what to do, and the state that explains an empty overlay.
   function editorState(v) {
     if (!opts.edit) return;
     $("ed-streamer").hidden = !streamer();
+    // why the last replay did not come (the game tab says so in overlayReplay.note)
+    const note = state.replay && !state.replay.gif && opts.replay > 0 ? REPLAY_NOTES[state.replay.note] ?? REPLAY_NOTES.error : "";
+    $("ed-replay-note").hidden = !note;
+    $("ed-replay-note").textContent = note;
     const box = $("ed-state");
     const s = state.settings;
     let title = null;
@@ -496,7 +713,9 @@
     } else {
       kind = "ok";
       title = "Ready.";
-      line = v.live ? "The game card follows your game." : "The game card appears when you play.";
+      if (opts.widgets.includes("caster")) line = v.live?.caster ? "The caster card follows the game you watch." : v.waiting ? `Buffering: the game shows ${v.delay} s late.` : "Watch a game (Tools, Observer): the caster card appears here.";
+      else if (v.delay > 0 && opts.delayAuto) line = v.waiting ? `A game you watch: it shows ${v.delay} s late (delay=0 in the address turns that off).` : `A game you watch runs ${v.delay} s late.`;
+      else line = v.live ? "The game card follows your game." : "The game card appears when you play.";
     }
     box.dataset.kind = kind;
     const text = el("span");
@@ -560,7 +779,9 @@
       if (!b) return;
       const on = opts.widgets.includes(b.dataset.w);
       const next = on ? opts.widgets.filter((w) => w !== b.dataset.w) : O.WIDGETS.filter((w) => w === b.dataset.w || opts.widgets.includes(w));
-      setOptions({ widgets: next });
+      // the caster card comes with its delay (and goes with it) unless one was set by hand
+      const delay = opts.delayAuto ? O.defaultDelay(next) : opts.delay;
+      setOptions({ widgets: next, delay });
     });
     $("ed-pos").addEventListener("click", (e) => {
       const b = e.target.closest("[data-pos]");
@@ -574,6 +795,17 @@
     $("ed-recap").addEventListener("change", () => {
       const n = Number($("ed-recap").value);
       setOptions({ recap: Number.isFinite(n) ? Math.max(0, Math.min(600, Math.round(n))) : O.DEFAULTS.recap });
+    });
+    $("ed-replay-on").addEventListener("click", () => setOptions({ replay: opts.replay > 0 ? 0 : Number($("ed-replay").value) || O.DEFAULTS.replay }));
+    $("ed-replay").addEventListener("change", () => {
+      const n = Number($("ed-replay").value);
+      setOptions({ replay: Number.isFinite(n) ? Math.max(0, Math.min(600, Math.round(n))) : O.DEFAULTS.replay });
+    });
+    $("ed-delay").addEventListener("change", () => {
+      const n = Number($("ed-delay").value);
+      // a number typed in is a delay set by hand (0 included); an empty field goes back to automatic
+      if ($("ed-delay").value.trim() === "" || !Number.isFinite(n)) setOptions({ delay: O.defaultDelay(opts.widgets), delayAuto: true });
+      else setOptions({ delay: Math.max(0, Math.min(O.MAX_DELAY, Math.round(n))), delayAuto: false });
     });
     $("ed-name").addEventListener("click", () => setOptions({ name: !opts.name }));
     $("ed-demo").addEventListener("click", () => setOptions({ demo: !opts.demo }));

@@ -23,6 +23,7 @@
   let frames = []; // { tick, blob, stats }
   let size = { w: 0, h: 0 };
   let every = 30;
+  let lastAt = 0; // when the newest frame arrived (wall clock): a replay of an old game records nothing new
   const listeners = new Set();
 
   function reset(id) {
@@ -42,6 +43,7 @@
     if (m.gameId !== gameId) reset(m.gameId);
     if (frames.length && m.tick <= frames[frames.length - 1].tick) return;
     size = { w: m.w, h: m.h };
+    lastAt = Date.now();
     const s = m.stats && typeof m.stats === "object" ? m.stats : {};
     frames.push({
       tick: m.tick,
@@ -337,14 +339,16 @@
     };
   }
 
-  async function toGif({ gameId: id = null, onProgress = () => {}, streamer = false, maxFrames = 150 } = {}) {
+  // maxScale: 2 (sharp, the default) or 1 (a quarter of the pixels - the stream
+  // overlay's replay shrinks to that when the file would not fit in storage).
+  async function toGif({ gameId: id = null, onProgress = () => {}, streamer = false, maxFrames = 150, maxScale = 2 } = {}) {
     const shot = snapshot(id);
     let list = shot.list;
     if (list.length > maxFrames) list = Array.from({ length: maxFrames }, (_, k) => list[Math.round((k * (list.length - 1)) / (maxFrames - 1))]); // the last one is the end of the game
     const { canvas, ctx } = stage(shot.w, shot.h);
     // Twice the recorded frame (up to ~960 px wide), so names and numbers in the
     // strip fit and the map reads on a phone; delta frames keep the file small.
-    const scale = Math.max(1, Math.min(2, Math.floor(960 / Math.max(1, shot.w))));
+    const scale = Math.max(1, Math.min(maxScale === 1 ? 1 : 2, Math.floor(960 / Math.max(1, shot.w))));
     canvas.width = shot.w * scale;
     canvas.height = shot.h * scale + hudHeight(canvas.width);
     const W = canvas.width;
@@ -472,6 +476,7 @@
     count: (id) => (id && id !== gameId ? 0 : frames.length),
     gameId: () => gameId,
     seconds: () => (frames.length ? frames[frames.length - 1].stats.seconds : 0),
+    lastFrameAt: (id) => (id && id !== gameId ? 0 : lastAt),
     onFrame: (fn) => (listeners.add(fn), () => listeners.delete(fn)),
     player,
     toWebM,

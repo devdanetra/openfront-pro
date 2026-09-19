@@ -23,6 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { playerGamePage } from "./standin-game.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = process.argv[2] ?? path.join(ROOT, ".shots", "overlay");
@@ -45,30 +46,8 @@ const check = (name, ok, detail = "") => {
   console.log(`  ${ok ? "ok  " : "FAIL"} ${name}${detail ? `  ${detail}` : ""}`);
 };
 
-// ---- the stand-in game: a fake, read-only GameView the probe can read ---------------
-const GAME_PAGE = `<!doctype html><title>stand-in game</title><body style="background:#355">
-<script>
-  localStorage.setItem("username", "TeNa");
-  localStorage.setItem("clanTag", "LUX");
-  const start = Date.now();
-  const people = [];
-  for (let i = 1; i <= 57; i++) people.push({ id: i, type: i <= 38 ? "HUMAN" : "FAKEHUMAN", alive: i <= 14 || i > 38, tiles: Math.round(40000 / (i + 1.5)) });
-  people[1].tiles = 12400; people[0].tiles = 17100; // #1 somebody, #2 me (id 2)
-  const view = (p) => ({ smallID: () => p.id, type: () => p.type, isAlive: () => p.alive, numTilesOwned: () => p.tiles, isMe: () => p.id === 2, clientID: () => "Cl1ent02", displayName: () => "P" + p.id });
-  window.fakeGame = {
-    gameID: () => ${JSON.stringify(GAME_ID)},
-    ticks: () => 7540 + Math.floor((Date.now() - start) / 100),
-    inSpawnPhase: () => false,
-    isCatchingUp: () => false,
-    myPlayer: () => view(people[1]),
-    playerViews: () => people.map(view),
-    numLandTiles: () => 100000,
-    config: () => ({ gameConfig: () => ({ gameMode: "Free For All", gameMap: "World" }) }),
-  };
-  const panel = document.createElement("player-panel");
-  panel.g = window.fakeGame;
-  document.body.append(panel);
-</script></body>`;
+// ---- the stand-in game: a fake, read-only GameView the probe can read (tools/standin-game.mjs)
+const GAME_PAGE = playerGamePage(GAME_ID);
 const site = http.createServer((req, res) => {
   res.writeHead(200, { "content-type": "text/html" });
   res.end(req.url.startsWith("/game/") ? GAME_PAGE : "<!doctype html><title>home</title><body>home</body>");

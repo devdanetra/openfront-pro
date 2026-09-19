@@ -123,8 +123,9 @@ store.session = bare(); // memory only, like chrome.storage.session
 let saveTimer = null;
 // The rank cache ("ofs<N>:" keys, ~16 KB per player, minutes of life) stays in
 // memory: persisting it made the file grow by a megabyte per lobby. So does what the
-// game window hands the stream overlay (the live state every few seconds, the recap card).
-const VOLATILE = /^(ofs\d+:|overlay(Live|Recap|Enabled|Self|Mask)$)/;
+// game window hands the stream overlay (the live state every few seconds, the recap card,
+// the replay GIF).
+const VOLATILE = /^(ofs\d+:|overlay(Live|Recap|Replay|Enabled|Self|Mask)$)/;
 // a change to memory-only keys alone never touches the file
 const memoryOnly = (area, keys) => area === "session" || (area === "local" && keys.every((k) => VOLATILE.test(k)));
 const persisted = () => JSON.stringify({ sync: store.sync, local: Object.fromEntries(Object.entries(store.local).filter(([k]) => !VOLATILE.test(k))) });

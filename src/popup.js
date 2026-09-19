@@ -15,6 +15,7 @@ const KEYS = [
   "autoCopyReport",
   "themeSite",
   "timelapse",
+  "casterPanel",
   "chatEnabled",
   "chatInFfa",
   "chatFilter",
@@ -53,6 +54,7 @@ const DEFAULTS = {
   autoCopyReport: false,
   themeSite: true,
   timelapse: true,
+  casterPanel: true,
   chatEnabled: false,
   chatInFfa: false,
   chatFilter: true,
@@ -327,7 +329,7 @@ async function injectNow() {
       });
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["src/themes.js", "src/scoring.js", "src/map-viewer.js", "src/charts.js", "src/dashboard.js", "src/timelapse.js", "src/recap.js", "src/chat.js", "src/content.js"],
+        files: ["src/themes.js", "src/scoring.js", "src/map-viewer.js", "src/charts.js", "src/dashboard.js", "src/timelapse.js", "src/recap.js", "src/chat.js", "src/observer-core.js", "src/caster.js", "src/content.js"],
       });
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },

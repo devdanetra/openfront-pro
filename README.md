@@ -43,6 +43,10 @@ are made up; dashboard, clan and tournament data come from public records.</sub>
 3. On the first-run page that opens, press **"I agree"** (see below).
 4. Open <https://openfront.io> and enter a lobby.
 
+It needs Chrome (or a Chromium browser) 114 or newer (`minimum_chrome_version`):
+from 114 on `chrome.storage.local` holds 10 MB, room for the tournament cache
+and the stream overlay's recap card and replay together.
+
 Click the toolbar icon for the settings: theme and website layout, which badge
 marks and scouting features are on, the recap and timelapse, streamer mode, the
 optional chat, your watchlist, a status readout and "Clear cached ranks". The
@@ -53,7 +57,8 @@ switch at its top turns everything off.
 On install a page opens that says, in plain words, what leaves the browser:
 player names from your lobby and game (yours included), clan tags and names you
 look up in the dashboard go to `api.ofstats.io`, a third-party community
-statistics service, and a finished game's id goes to OpenFront's public API.
+statistics service, and a finished game's id (or one you check in the Observer
+page) goes to OpenFront's public API.
 **Nothing is looked up until you press "I agree"**; the worker refuses lookup
 messages until then (`dataConsent`), and the popup can switch it off again
 ("Turn rank lookups off"). Themes and layouts work without it; ranks, the home
@@ -551,8 +556,10 @@ published (single-player), too. From there:
 Frames are kept **in memory, in that tab only**, at most 360 (long games keep
 every other frame and slow down), and are thrown away with the next game or when
 the tab closes. Nothing is uploaded: saving writes a file on your computer.
-Streamer mode leaves other players' names out of the strip. Switch: *Game ->
-Timelapse*.
+Streamer mode leaves other players' names out of the strip; the names in it are
+the ones the game shows you (with OpenFront's *Hidden Names* on, hidden). The
+stream overlay can play it as a replay when the game is over (below). Switch:
+*Game -> Timelapse*.
 
 ## Streamer overlay
 
@@ -565,6 +572,10 @@ An OBS overlay page (`src/overlay.html`), made of cards rather than text:
   biggest empires against yours (no names).
 - **Recap** - when the game's record is in, the recap's share card for a set
   number of seconds (then the live card of the next game takes over).
+- **Replay** - after the recap card, the game's timelapse as an animated GIF
+  for a set number of seconds, then the overlay hides (see below).
+- **Caster** - observer mode: the leaderboard, teams and eliminations of a game
+  you *watch*, shown late on purpose (see [Observer mode](#observer-mode)).
 
 **Browser extension.** Settings -> *Tools* -> *Streamer overlay* -> **Open** opens
 it in a small window of its own on green. In OBS: *Window Capture* -> that
@@ -581,10 +592,15 @@ settings page has *Copy* under Tools): OBS -> *Browser Source* -> that address,
 key: never show it on stream or share it.** It changes every time the launcher
 starts, so paste the new one into OBS after a restart.
 
-Options in the address: `w=rank,live,recap` (which cards, in that order),
-`bg=transparent|green|dark`, `pos=tl|tr|bl|br`, `scale=0.5..3`, `recap=20`
-(seconds; `0` = until the next game), `name=0` (never show your name),
-`streamer=1`. **Streamer mode** always wins: with it on, neither your name nor
+Options in the address: `w=rank,live,recap` (which cards, in that order;
+`caster` is the fourth), `bg=transparent|green|dark`, `pos=tl|tr|bl|br`,
+`scale=0.5..3`, `recap=20` (seconds; `0` = until the next game), `replay=25`
+(seconds of replay after the recap card; `0` = off), `delay=0..600` (seconds
+everything about a game runs late - the game cards, the recap and replay, and the
+rank card's pips, streak and rank after a game; left out of the address it is
+90 with the caster card **or whenever the game on the overlay is one you watch**,
+whatever the cards, and 0 otherwise; a `delay=` in the address always wins, `0`
+included), `name=0` (never show your name), `streamer=1`. **Streamer mode** always wins: with it on, neither your name nor
 your rank is shown (no gauge, no drift arrow; the streak and today's games
 stay), as everywhere else in the extension. With streamer mode or `name=0` the
 recap card is drawn masked too ("You", no rank); an unmasked card is never shown
@@ -605,10 +621,111 @@ for your own rank like the home card does (right after a game, bypassing the
 10-minute cache). The recap card needs the recap on and rank lookups agreed,
 like the recap itself (closing the recap panel does not stop the card; a
 replay's end screen never makes one). The openfront.io page can see that an
-overlay is open (`data-ofr-overlay="on"` on its root element). The timelapse clip is
-not on the overlay: its frames stay in the game tab. `node tools/test-overlay.mjs`
+overlay is open (`data-ofr-overlay="on"` on its root element). `node tools/test-overlay.mjs`
 checks the page logic; `node tools/shot-overlay.mjs` runs the whole path against
 a stand-in game through the launcher and takes the screenshots.
+
+**Replay.** The timelapse's frames live only in the game tab, so that tab makes
+the GIF: once the game is **over** (the client says so; never while it is being
+played, and never for the replay of an old game - the client's replay flag, or a
+record that ended more than three hours ago), while an overlay page is open, it
+encodes the recorded frames with the same encoder as *Save GIF*, a few frames at
+a time so the page stays responsive, and hands the result over as
+`overlayReplay` - at most 1.5 MB of storage (about 1.1 MB of GIF; every storage
+listener - the worker, each openfront.io tab, the launcher's pages - is handed it
+with each change): fewer frames first, then the recorded size instead of twice
+it, until it fits; if it never does, the overlay's settings say the last replay
+was skipped. It is written once per game (again only when the masking flips),
+and the previous game's recap card and replay are removed before a new game's
+go in, so storage never holds two games' images and no change event carries an
+old and a new one. Masked exactly like the recap card: with
+streamer mode on or an overlay page that hides your name, the strip under the
+map names nobody, and it is made again when that flips. It is removed with the
+rest when the overlay closes. The overlay plays it right after the recap card
+(`replay=` seconds, `0` = off, a switch in its settings), then hides; with
+`recap=0` the card stays and there is no replay. It needs the *Timelapse* switch
+(and the recap, and rank lookups agreed) while the game runs. The launcher keeps
+it in memory only, like the other overlay keys.
+
+## Observer mode
+
+Watch someone else's game - a tournament final, a friend's match - with a
+caster view.
+
+**Observer page** (Settings -> *Tools* -> *Observer*). Paste a game link, a
+lobby link (`#join=...`, `/join/...`) or just the id, press *Check*. The
+extension asks OpenFront's own public endpoints whether that game is there, the
+same way the site's lobby window does (the id's first letter names the server,
+its hash the worker; `/api/game/<id>/exists` and `/api/game/<id>`) - only the id
+is sent, only with rank lookups agreed - and shows map, mode, players and state:
+
+- **Live** - *Watch* opens the game's link in a new tab. OpenFront seats anyone
+  who opens a running game's link as a **spectator**. *Watch* waits until 9 s
+  after the start time, by OpenFront's own clock: the server really starts the
+  game 2-3 s after that time (a join before it is a lobby join, **as a player**),
+  and for 5 s after the real start it **refuses** any join that is not a
+  spectator's (you are not seated at all). It is offered only with somebody
+  playing and the server's time in the answer.
+- **In the lobby** / **Starts in 0:42** - not opened by itself: opening a lobby
+  that has not started joins it **as a player**, unless you choose *Spectate* in
+  the lobby yourself. The page checks once more by itself when the countdown
+  ends, however long it is. *Remind me when it starts* checks again every 15 s
+  (for up to 30 minutes), then offers *Watch* and sends a notification (with
+  *Sound and notification* on); *Open lobby anyway* is there if you want the
+  lobby. The reminder stops by itself when there is nothing to wait for (over,
+  not found, an old id), and runs once per game however many observer tabs
+  wait for it (the newest takes over; one notification).
+- **State unknown** - no start time: a private lobby waiting for its host, or a
+  lobby that started when it filled up (OpenFront sets no start time then, and
+  its answer has no "started" flag). A lobby seen full counts as started from
+  then on (the server's "reached max players" never goes back). *Check again*;
+  *Remind me* stops after 8 checks that still cannot tell.
+- **No one is playing** - past its start time with nobody connected as a player:
+  OpenFront does not start a game without players, and a join could seat you as
+  one. No *Watch*.
+- **Game over** (it is in OpenFront's archive), **Not found**, or an old
+  8-character id (games running now have 10).
+
+The extension never clicks anything on openfront.io, never picks *Spectate* for
+you and sends no game message: it only opens the link when you press a button.
+
+**Caster panel** (in the game tab, whenever you are a spectator; *Game* ->
+*Caster panel*). "Spectator" is read the way the server decides it: a replay,
+*Spectate* picked in the lobby, or this client not on the game's roster (the
+players frozen at the start). Not the client's own `isSpectator()`, which is also
+true for every player during the spawn phase and for one who was eliminated: a
+player never gets the panel, the standings or the rank lookups of the others. Docked on the right edge, foldable to a tab: the clock and
+humans still in, every empire by land with a bar, its colour on the map and the
+rank badge of known players (from the same lookups and cache as everywhere,
+only with rank lookups agreed), a land split and alive pips per team in team
+games, and who was eliminated when (humans and nations; bots are left out).
+Names are the ones the game **shows** you - with OpenFront's *Hidden Names* on
+they stay hidden - and streamer mode leaves players' names and ranks out. The
+page script sends these standings only while the panel or an overlay wants them
+(`data-ofr-caster="on"`), read-only, like everything else it reads.
+
+**Caster overlay** (the observer page's *Open caster overlay*, or `w=caster` in
+the overlay's address). The same leaderboard, team split and last eliminations
+for OBS, then the game's replay when it is over. **It runs 90 seconds late by
+default** (`delay=`, 0 to 600): viewers of a live game can tell the players in it
+what they see (*ghosting*); holding the overlay back makes what it shows useless
+to them. The page keeps what it receives in its own memory and shows the state
+from *delay* seconds ago, with a small "delayed 90s" in the corner; the recap
+card comes when the delayed stream reaches the end of the game (the game's card
+runs until then), and the rank card's pips and streak move that late too. The
+default cards get the same 90 s whenever the game on the overlay is one you
+watch. It only delays the overlay: delay the game capture too (OBS: stream
+delay, or a *Render Delay* filter on the game source). With streamer mode or
+`name=0` the card names nobody.
+
+`node tools/test-observer.mjs` checks link parsing, the route to a game's server,
+the status and reminder rules, the leaderboard and eliminations logic, the real
+`page-probe.js` against a stand-in GameView with OpenFront's seat rules (a player
+spawning or eliminated is not a spectator) and the worker's check against a
+stand-in network; `node tools/shot-observer.mjs` runs
+it all end to end against a stand-in spectator game through the launcher (the
+observer page against a stubbed answer: it never asks OpenFront) and takes the
+screenshots in `.shots/observer/`.
 
 ## Chat (beta, off by default)
 
@@ -872,8 +989,11 @@ src/recap.js        game recap: analysis, panel, share image
 src/welcome.html/js first-run disclosure and consent
 src/clans.html/js   clan hub: weekly table, clan page, clan vs clan, recruits
 src/clans-logic.js  the clan hub's pure logic: weeks, movers, comparison, head-to-head, recruits
-src/overlay.html/js OBS stream overlay (rank, live game, recap card)
-src/overlay-core.js the overlay's pure logic: options, checks, what shows
+src/overlay.html/js OBS stream overlay (rank, live game, recap card, replay, caster card)
+src/overlay-core.js the overlay's pure logic: options, checks, what shows, delay buffer
+src/observer.html/js observer page: check a game link, watch, remind me when it starts
+src/observer-core.js observer mode's pure logic: links, route, status, caster leaderboard and eliminations
+src/caster.js       the caster panel shown in the game tab while you watch
 src/tournament.html/js/css  tournaments: setup, games, standings, bracket, series, share image
 src/tournament-core.js      the tournaments' pure logic: links, matching, scoring, bracket, share links, validation
 src/chat.js         chat panel (closed shadow root), muting, filter, presence, Team tab
@@ -884,7 +1004,7 @@ src/vendor/         nostr-crypto.js - vendored @noble Schnorr + ECDH + SHA-256
 src/dashboard.css   dashboard, home card and settings overlay styling
 src/site-layouts.css   the three website layout templates
 src/page-themes.css    GENERATED from themes.js: OpenFront's palette per theme
-src/page-probe.js   MAIN-world probe: map preview, timelapse frames, team roster/emoji feed, overlay figures
+src/page-probe.js   MAIN-world probe: map preview, timelapse frames, team roster/emoji feed, overlay figures, caster feed
 src/map-viewer.js   full-screen zoomable terrain view
 icons/              extension and notification icons
 sounds/alert.wav    watchlist alert
@@ -898,6 +1018,9 @@ tools/check-theme-contrast.mjs  contrast and band-distinctness check for every t
 tools/test-recap.mjs       recap analysis over real game records, in node
 tools/test-overlay.mjs     stream overlay logic, in node
 tools/shot-overlay.mjs     stream overlay end to end (stand-in game + launcher) and screenshots
+tools/test-observer.mjs    observer mode logic and the worker's game check, in node
+tools/shot-observer.mjs    observer mode, caster overlay and replay end to end (stand-in spectator game + launcher), screenshots
+tools/standin-game.mjs     the stand-in game pages those two use (a fake, read-only GameView)
 tools/test-clans.mjs       clan hub logic and the worker's clanTable route, in node
 tools/shot-clans.mjs       clan hub screenshots with real ofstats data, through the launcher
 tools/test-tournament.mjs  tournament logic over the real records in .recap/, in node
