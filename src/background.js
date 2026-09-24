@@ -220,11 +220,66 @@ function pump() {
   }
 }
 
-async function fetchStats(username) {
+// ---- player ids ---------------------------------------------------------------------------
+// ofstats keys a player on OpenFront's public player id (the publicID in a game
+// record: api.ofstats.io/players/YCI2U8LO, ofstats.io/player/YCI2U8LO). Names are
+// not unique and change; the id does not. The worker learns name -> id from every
+// game record it reads and from ofstats' own answers, and looks a player up by id
+// from then on. A name with no id yet is still asked for by name.
+const PLAYER_IDS_KEY = "ofsPlayerIds";
+const PLAYER_IDS_CAP = 5000;
+const PLAYER_ID = /^[A-Za-z0-9]{6,16}$/;
+const isPlayerId = (v) => typeof v === "string" && PLAYER_ID.test(v);
+// The id an ofstats object carries, under whichever name it uses for it.
+const idOf = (o) => [o?.publicId, o?.publicID, o?.playerId, o?.playerID, o?.id].find(isPlayerId) ?? null;
+
+let playerIds = null; // Map: lowercased ofstats name -> id, least recently learned first
+let playerIdsLoad = null;
+let playerIdsTimer = null;
+function loadPlayerIds() {
+  playerIdsLoad ??= chrome.storage.local
+    .get(PLAYER_IDS_KEY)
+    .then((r) => {
+      const stored = r?.[PLAYER_IDS_KEY];
+      playerIds = new Map(Array.isArray(stored) ? stored.filter((e) => Array.isArray(e) && isPlayerId(e[1])) : []);
+    })
+    .catch(() => {
+      playerIds = new Map();
+    });
+  return playerIdsLoad;
+}
+async function playerIdFor(name) {
+  await loadPlayerIds();
+  return playerIds.get(String(name).toLowerCase()) ?? null;
+}
+// name: the ofstats name, "[TAG] name" for a tagged player (OFR_SCORING.statsName)
+async function notePlayerId(name, id) {
+  if (!name || !isPlayerId(id)) return;
+  await loadPlayerIds();
+  const key = String(name).toLowerCase();
+  if (playerIds.get(key) === id) return;
+  playerIds.delete(key);
+  playerIds.set(key, id);
+  while (playerIds.size > PLAYER_IDS_CAP) playerIds.delete(playerIds.keys().next().value);
+  if (!playerIdsTimer) {
+    playerIdsTimer = setTimeout(() => {
+      playerIdsTimer = null;
+      chrome.storage.local.set({ [PLAYER_IDS_KEY]: [...playerIds] }).catch(() => {});
+    }, 500);
+  }
+}
+// Every player of a finished game, from the record the recap reads.
+function notePlayerIdsFrom(record) {
+  for (const p of record?.players ?? []) {
+    if (p.publicID) notePlayerId(OFR_SCORING.statsName(p.username, p.clanTag), p.publicID);
+  }
+}
+
+async function fetchStats(username, id = null) {
   // limit=60 costs the same one request and gives head-to-head a real chance
   // of overlapping with the viewer's own recent games.
   const res = await fetch(
-    `${OFSTATS_API}/players/${encodeURIComponent(username)}?limit=60`,
+    `${OFSTATS_API}/players/${encodeURIComponent(id ?? username)}?limit=60`,
     { headers: { accept: "application/json" } },
   );
   // 404 is the ordinary answer for a name that has never finished a public
@@ -250,6 +305,8 @@ async function fetchStats(username) {
   return {
     found: true,
     username: data.username ?? username,
+    // the player's id on ofstats (links go to ofstats.io/player/<id>)
+    id: idOf(data) ?? id,
     games,
     wins: data.wins ?? 0,
     winRate: (100 * (data.wins ?? 0)) / games,
@@ -329,6 +386,7 @@ async function fetchClan(tag) {
     members: (Array.isArray(d.members) ? d.members : []).slice(0, 50).map((m) => ({
       name: strip(m.username),
       username: String(m.username ?? ""),
+      id: idOf(m),
       games: m.gamesPlayed ?? 0,
       wins: m.wins ?? 0,
       winRate: m.winRate ?? null,
@@ -456,6 +514,7 @@ async function lookupClan(tag) {
   const promise = schedule(() => fetchClan(tag))
     .catch((err) => ({ found: false, reason: "error", error: String(err) }))
     .then(async (value) => {
+      for (const m of value?.members ?? []) if (m.id) notePlayerId(m.username, m.id);
       await cacheSet(key, value);
       return value;
     })
@@ -464,6 +523,8 @@ async function lookupClan(tag) {
   return promise;
 }
 
+// Keyed and cached by name (what every caller holds); fetched by id once the
+// name's id is known.
 async function lookup(username, fresh = false) {
   const key = `${CACHE_PREFIX}${username.toLowerCase()}`;
   if (!fresh) {
@@ -472,9 +533,11 @@ async function lookup(username, fresh = false) {
   }
   if (inFlight.has(key)) return inFlight.get(key);
 
-  const promise = schedule(() => fetchStats(username))
+  const promise = playerIdFor(username)
+    .then((id) => schedule(() => fetchStats(username, id)))
     .catch((err) => ({ found: false, reason: "error", error: String(err) }))
     .then(async (value) => {
+      if (value?.found && value.id) notePlayerId(username, value.id);
       await cacheSet(key, value);
       if (value?.found) noteRecruit(globalThis.OFR_CLAN_LOGIC?.recruitRecord(value));
       return value;
@@ -1083,6 +1146,10 @@ function onMessage(msg, _sender, sendResponse) {
   }
   if (msg?.type === "gameRecord") {
     fetchGameRecord(String(msg.gameId ?? ""))
+      .then((record) => {
+        notePlayerIdsFrom(record);
+        return record;
+      })
       .catch((err) => ({ error: String(err?.message ?? err) }))
       .then(sendResponse);
     return true;

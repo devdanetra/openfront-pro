@@ -170,6 +170,7 @@
     const expectedRate = info.ratedGames > 0 && fin(info.expectedWins) ? info.expectedWins / info.ratedGames : null;
     return {
       username: String(info.username ?? ""),
+      id: typeof info.id === "string" && info.id ? info.id : null, // ofstats' player id
       pct: r ? r.pct : null,
       band: r ? S().percentBand(r.pct) : null,
       ratio: r ? r.ratio : null,

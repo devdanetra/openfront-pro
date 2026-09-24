@@ -376,6 +376,12 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
     const u = new URL(url);
     if (u.pathname === "/clans" && u.searchParams.get("sort")) return new Response('{"error":"Invalid sort"}', { status: 400 });
     if (u.pathname === "/clans") return new Response(JSON.stringify({ ...W38, week: u.searchParams.get("week") ?? W38.week, isCurrentWeek: !u.searchParams.get("week") }), { status: 200 });
+    // a clan whose members come with their player id
+    if (u.pathname === "/clans/IDC") return new Response(JSON.stringify({ clanTag: "IDC", gamesPlayed: 10, members: [{ username: "[IDC] Member", publicId: "MEMBERID", gamesPlayed: 10, wins: 2 }] }), { status: 200 });
+    // OpenFront's record of a finished game: the players' public ids
+    if (u.hostname === "api.openfront.io" && u.pathname === "/public/game/RECGAME1") {
+      return new Response(JSON.stringify({ info: { gameID: "RECGAME1", config: {}, players: [{ username: "Rec Guy", clanTag: "LUX", clientID: "c1", publicID: "RECID001", stats: {} }] } }), { status: 200 });
+    }
     if (u.pathname.startsWith("/players/")) {
       const name = decodeURIComponent(u.pathname.slice("/players/".length));
       if (/^Down/.test(name)) return new Response("oops", { status: 502 });
@@ -383,6 +389,8 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
       return new Response(
         JSON.stringify({
           username: name,
+          // ofstats' answer carries the player's id; the fake only gives one to "Id Learner"
+          ...(name === "Id Learner" || name === "IDLEARN1" ? { publicId: "IDLEARN1" } : {}),
           gamesPlayed: 120,
           wins: 30,
           lastSeen: new Date(T0 - 86400000).toISOString(),
@@ -489,10 +497,34 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
   const odd = await ask({ type: "lookup", usernames: [null, "Fine Name"] });
   ok(odd !== "TIMEOUT" && odd?.["Fine Name"]?.found, "lookup: an odd name does not stall the others");
 
+  // ---- player ids: learned, then used for the lookup ----
+  const byName = await ask({ type: "lookup", usernames: ["Id Learner"] });
+  eq(fetched.at(-1), "https://api.ofstats.io/players/Id%20Learner?limit=60", "ids: a name with no id yet is asked for by name");
+  eq(byName?.["Id Learner"]?.id, "IDLEARN1", "ids: the id from ofstats' answer is in the result");
+  await ask({ type: "lookup", usernames: ["Id Learner"], fresh: true });
+  eq(fetched.at(-1), "https://api.ofstats.io/players/IDLEARN1?limit=60", "ids: ...and asked for by id after that");
+
+  const rec = await ask({ type: "gameRecord", gameId: "RECGAME1" });
+  eq(rec?.players?.[0]?.publicID, "RECID001", "ids: game record read");
+  await sleep(20);
+  const recHit = await ask({ type: "lookup", usernames: ["[LUX] Rec Guy"] });
+  eq(fetched.at(-1), "https://api.ofstats.io/players/RECID001?limit=60", "ids: learned from a game record ([TAG] name -> publicID)");
+  eq(recHit?.["[LUX] Rec Guy"]?.id, "RECID001", "ids: the id is in the result even when ofstats' answer has none");
+
+  const clan = await ask({ type: "clan", tag: "IDC" });
+  eq(clan?.members?.[0]?.id, "MEMBERID", "ids: a clan member's id");
+  await ask({ type: "lookup", usernames: ["[IDC] Member"] });
+  eq(fetched.at(-1), "https://api.ofstats.io/players/MEMBERID?limit=60", "ids: learned from a clan's member list");
+
+  await sleep(700);
+  const saved = new Map(store.local.ofsPlayerIds ?? []);
+  ok(saved.get("id learner") === "IDLEARN1" && saved.get("[lux] rec guy") === "RECID001" && saved.get("[idc] member") === "MEMBERID", "ids: kept in storage.local");
+
   // ---- clearCache empties the recruit index too ----
   const cleared = await ask({ type: "clearCache" });
   ok(cleared !== "TIMEOUT" && !("recruitIndex" in store.local) && !Object.keys(store.local).some((k) => k.startsWith("ofs6:")), "clearCache: cache and recruit index gone");
   ok("tournaments" in store.local, "clearCache: other data untouched");
+  ok("ofsPlayerIds" in store.local, "clearCache: learned player ids kept (they are not cached stats)");
 }
 function fin(v) {
   return typeof v === "number" && Number.isFinite(v);
