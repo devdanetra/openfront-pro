@@ -96,9 +96,10 @@
 
   const when = (g) => (g.date ? new Date(g.date).toLocaleDateString() : "");
 
-  // name: the ofstats name, "[TAG] name" for a player with a clan tag
-  function profileUrl(name) {
-    return `https://ofstats.io/player/${encodeURIComponent(name)}`;
+  // ref: the player's ofstats id (ofstats.io/player/YCI2U8LO), or while it is not
+  // known their ofstats name, "[TAG] name" for a player with a clan tag
+  function profileUrl(ref) {
+    return `https://ofstats.io/player/${encodeURIComponent(ref)}`;
   }
 
   // Every name the dashboard is given, shows and looks up is a player's ofstats
@@ -411,11 +412,11 @@
     if (C?.icon) seen.append(C.icon("clock"));
     seen.append(document.createTextNode(ago(info.lastSeen)));
     meta.append(seen);
-    // (the link's URL carries the name, and a browser shows it on hover)
+    // (the link's URL carries the id or the name, and a browser shows it on hover)
     if (!(currentOpts.self && currentOpts.streamer)) {
       const link = el("a", "ofr-dash-link", "ofstats ↗");
       link.title = "Open on ofstats.io";
-      link.href = profileUrl(name);
+      link.href = profileUrl(info.id ?? name);
       link.target = "_blank";
       link.rel = "noopener";
       meta.append(link);

@@ -41,7 +41,8 @@
   const daysText = (d) => (d == null ? "unknown" : d < 1 ? "today" : d < 2 ? "yesterday" : `${Math.floor(d)} days ago`);
   const shortWeek = (w) => (L.weekNumber(w) ? `W${L.weekNumber(w)}` : String(w ?? ""));
   const dayText = (ms) => (fin(ms) ? new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
-  const playerUrl = (name) => `https://ofstats.io/player/${encodeURIComponent(name)}`;
+  // ref: the player's ofstats id, or their ofstats name while the id is not known
+  const playerUrl = (ref) => `https://ofstats.io/player/${encodeURIComponent(ref)}`;
   const gameUrl = (id) => `https://ofstats.io/game/${encodeURIComponent(id)}`;
   const icon = (name) => C.icon(name);
 
@@ -291,7 +292,7 @@
     l1.append(seen);
     if (!hide) {
       const a = el("a", "hub-out", "ofstats.io ↗");
-      a.href = playerUrl(name);
+      a.href = playerUrl(p.id ?? name);
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       a.title = `Open ${name} on ofstats.io`;
