@@ -267,6 +267,8 @@ function openDashboard(name, clan) {
     clanStats: settings.clanStats,
     self: !!name && isSelf(name),
     streamer: settings.streamerMode,
+    // a bare name from a lobby that hides tags: the same account as its badge
+    anyTag: !!name && !tag && tagsHidden(),
   });
 }
 
@@ -312,6 +314,7 @@ function installHomeWidget() {
     streamer: settings.streamerMode,
     clan: name ? (me?.clan ?? null) : null,
     clanStats: settings.clanStats,
+    selfId: pageSelfId(), // the card is redrawn once it is known (the lookup then goes by it)
   });
 }
 
@@ -712,7 +715,7 @@ function formatBadge(info) {
     }
     if (settings.flagSmurfs && smurf(info)) flags.push(icon("smurf"));
     return {
-      main: `Top ${formatPercent(rank.pct)}%`,
+      main: `${likely(info)}Top ${formatPercent(rank.pct)}%`,
       seg,
       flags: flags.join(" "),
       kind: "percentile",
@@ -723,8 +726,22 @@ function formatBadge(info) {
   // Too few rated games to place; say what little is known instead.
   if (typeof info.winRate !== "number") return null;
   const rate = info.games < 20 ? Math.round(info.winRate) : info.winRate.toFixed(1);
-  const text = settings.showGames ? `${rate}% WR · ${compactGames(info.games)} games` : `${rate}% WR`;
-  return { main: text, kind: "winrate" };
+  const text = settings.showGames ? `${rate}% WR · ${compactGames(info.games)} game${info.games === 1 ? "" : "s"}` : `${rate}% WR`;
+  return { main: `${likely(info)}${text}`, kind: "winrate" };
+}
+
+// The lobby lists names, and ofstats keys players on their OpenFront account, so
+// a name is matched to an account by the worker (background.js matchName) unless
+// its exact id is known. Where other accounts play under the same name and the
+// match is not clear, the figure is marked as the likely one: "≈ Top 12%".
+function likely(info) {
+  return info?.match?.clear === false ? "≈ " : "";
+}
+function matchLine(info) {
+  const m = info?.match;
+  if (m?.clear !== false) return null;
+  const n = Number(m.others) || 0;
+  return `≈ Matched by name: ${n > 0 ? `${n} other account${n === 1 ? "" : "s"} also played under it lately` : "other accounts play under it too"}; showing the likeliest`;
 }
 
 // Why a name has no rank, so a blank space is never mistaken for a broken
@@ -732,6 +749,7 @@ function formatBadge(info) {
 const MISSING_TEXT = {
   hidden: "hidden",
   guest: "guest",
+  shared: "shared",
   "no-history": "new",
   error: "offline",
 };
@@ -741,9 +759,17 @@ const MISSING_TOOLTIP = {
     'OpenFront’s "Hidden Names" setting is replacing this player’s name on your screen, so there is nothing to look up. Turn it off in OpenFront settings to see everyone.',
   guest:
     "A generated guest name (this player never set one). Thousands of players share these names, so no rank can belong to it.",
+  shared:
+    "A name very many OpenFront accounts play under (often one the game suggests), so there is no telling whose rank it would be.",
   "no-history": "No finished public games on ofstats.io yet.",
   error: "ofstats.io could not be reached. It is asked again in a minute.",
 };
+function missingTooltip(reason, info) {
+  if (reason === "shared" && info?.accounts > 0) {
+    return `${info.accounts.toLocaleString()} OpenFront accounts have played under this name (often one the game suggests), so there is no telling whose rank it would be.`;
+  }
+  return MISSING_TOOLTIP[reason] ?? "";
+}
 
 function formatMissing(placeholder, info) {
   if (!settings.explainMissing) return null;
@@ -779,6 +805,8 @@ function headToHead(info) {
 // Native tooltip: the subject first, at most 8 lines, the action hint last.
 function tooltip(username, info, label = username) {
   const lines = [label];
+  const match = matchLine(info);
+  if (match) lines.push(match);
   const rank = ranked(info);
   lines.push(
     `${info.wins} wins in ${info.games} public games (${info.winRate.toFixed(1)}%)` +
@@ -869,7 +897,7 @@ function applyBadge(el, username, placeholder, info, clan = null) {
   badge.replaceChildren(...nodes);
   badge.title =
     formatted.kind === "missing"
-      ? `${lookupName}\n${MISSING_TOOLTIP[formatted.reason] ?? ""}`
+      ? `${lookupName}\n${missingTooltip(formatted.reason, info)}`
       : tooltip(username, info, lookupName);
 
   if (formatted.kind === "missing") {
@@ -1019,13 +1047,14 @@ globalThis.__ofrRecapModel = () => lastRecap; // dev tools (tools/cdp-recap.mjs)
 const RECAP_MIN_KEY = "recapCollapsed";
 
 // Which client we are, per game (from the lobby modal or the running game, via
-// page-probe.js), and our stable OpenFront public id once a record has shown it.
+// page-probe.js), and our stable OpenFront public id: from OpenFront's page
+// (noteSelfId), or once a record has shown it.
 const myClientIds = new Map(); // gameId -> clientID
 let myPublicId = null;
 const PUBLIC_ID_KEY = "myPublicId";
 try {
   chrome.storage.local.get(PUBLIC_ID_KEY).then((r) => {
-    if (typeof r?.[PUBLIC_ID_KEY] === "string") myPublicId = r[PUBLIC_ID_KEY];
+    if (myPublicId === null && typeof r?.[PUBLIC_ID_KEY] === "string") myPublicId = r[PUBLIC_ID_KEY];
   });
 } catch {
   // storage unavailable
@@ -1037,6 +1066,39 @@ function noteClientId() {
   const clientId = lobby?.clientId ?? game?.clientId ?? null;
   if (gameId && clientId) myClientIds.set(gameId, clientId);
   if (myClientIds.size > 20) myClientIds.delete(myClientIds.keys().next().value);
+}
+
+// Your OpenFront player id as OpenFront's own page holds it (page-probe.js reads
+// it from the account answer the page fetched; a guest has one too). Exact, where
+// everyone else in a lobby is only a name: the worker is told which account your
+// name is, so your own lookups never go by name matching.
+function pageSelfId() {
+  const v = document.documentElement.dataset.ofrMe;
+  return typeof v === "string" && /^[A-Za-z0-9]{6,16}$/.test(v) ? v : null;
+}
+let notedSelfId = null; // "name|id" the worker was last told
+function noteSelfId() {
+  const id = pageSelfId();
+  if (!id) return;
+  if (id !== myPublicId) {
+    myPublicId = id;
+    try {
+      chrome.storage.local.set({ [PUBLIC_ID_KEY]: id }).catch(() => {});
+    } catch {
+      // extension reloaded under us
+    }
+  }
+  const name = selfStatsName();
+  const noted = name ? `${name.toLowerCase()}|${id}` : null;
+  if (!noted || noted === notedSelfId) return;
+  notedSelfId = noted;
+  try {
+    chrome.runtime.sendMessage({ type: "selfId", name, id }).catch(() => {
+      notedSelfId = null; // worker asleep: told again on the next scan
+    });
+  } catch {
+    notedSelfId = null;
+  }
 }
 
 function recapContext(gameId = currentGameId()) {
@@ -1905,6 +1967,17 @@ function readMapInfo() {
   }
 }
 
+// Whether the lobby on screen, or else the running game, hides clan tags: every
+// public free-for-all does (OpenFront's disableClanTags), so a tagged player shows
+// there by the bare name. Lookups from there say so (anyTag), and the worker
+// matches the name played under any tag (background.js matchName).
+function tagsHidden() {
+  const lobby = readMapInfo();
+  if (lobby) return lobby.tagsHidden === true;
+  const game = readGameState();
+  return game?.running === true && game.tagsHidden === true;
+}
+
 // --- Chat (chat.js) ---------------------------------------------------------------
 // Which room, under what name, and whether it may be used right now. The room is
 // the lobby's id, which is also the game's id once it starts, so a lobby stays
@@ -2459,7 +2532,7 @@ async function casterLookups() {
   if (!names.length) return;
   casterLookupAt = Date.now();
   try {
-    const res = await chrome.runtime.sendMessage({ type: "lookup", usernames: names });
+    const res = await chrome.runtime.sendMessage({ type: "lookup", usernames: names, anyTag: tagsHidden() });
     for (const [name, info] of Object.entries(res ?? {})) known.set(name.toLowerCase(), info);
     renderCaster();
   } catch {
@@ -2643,6 +2716,7 @@ async function refresh() {
     lastLobbyMode = lobby.mode ?? null;
   }
   noteClientId();
+  noteSelfId(); // ahead of this scan's lookups: the worker learns which account your name is
   checkRecap();
   syncChat();
   installNavButton();
@@ -2724,7 +2798,7 @@ async function refresh() {
 
   let results;
   try {
-    results = await chrome.runtime.sendMessage({ type: "lookup", usernames });
+    results = await chrome.runtime.sendMessage({ type: "lookup", usernames, anyTag: tagsHidden() });
   } catch (err) {
     // The worker does the fetching (ofstats sends no CORS header, so a
     // page-context fetch cannot), which makes a dead worker fatal — say so.
@@ -2826,6 +2900,11 @@ const mapObserver = new MutationObserver(() => {
   noteClientId();
   syncChat(); // the lobby id and the playing / out state both arrive this way
   if (!settings.enabled) return; // "everything off": no map preview, no auto-copy
+  if (settings.dataConsent && pageSelfId() && !notedSelfId?.endsWith(`|${pageSelfId()}`)) {
+    // your id just arrived (or changed): tell the worker, then redraw your card by it
+    noteSelfId();
+    installHomeWidget();
+  }
   renderMapPreview();
   checkAutoCopy();
   // The host switched maps (or the map arrived after the names): the per-map
@@ -2903,7 +2982,7 @@ const REBUILD = new Set(["enabled", "dataConsent", "explainMissing", "showGames"
   observer.observe(document.body, { childList: true, subtree: true });
   mapObserver.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-ofr-map", "data-ofr-game"],
+    attributeFilter: ["data-ofr-map", "data-ofr-game", "data-ofr-me"],
   });
   console.log(
     `[OpenFront Pro] v${version} active on ${location.host} — settings:`,

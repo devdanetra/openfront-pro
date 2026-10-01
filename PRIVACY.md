@@ -27,7 +27,7 @@ either, and neither does the map preview below.
 
 | What | To | When | Why |
 |---|---|---|---|
-| **Player names**: the names shown in your lobby or game (including your own OpenFront username; also the players of a game you watch, for the caster panel's rank badges: a dozen at most every 15 s, not in streamer mode), the players named in a game's recap, and any name you type into the dashboard's search or *Compare* box - once a player's public OpenFront player id is known (from a game record or from ofstats' own answer), that **public player id** is sent instead of the name; and **clan tags** seen there or opened in the dashboard | `api.ofstats.io` - an independent, third-party community statistics service for public OpenFront games | while you look at a lobby, the in-game player panels, the dashboard or the recap; your own name also on OpenFront's front page (your stats card, at most once a minute) and again after each game you played (for the rank change). Without any name: the weekly clan table in the dashboard, and a reachability check each time you open the settings | to fetch public player and clan statistics and show ranks |
+| **Player names**: the names shown in your lobby or game (including your own OpenFront username; also the players of a game you watch, for the caster panel's rank badges: a dozen at most every 15 s, not in streamer mode), the players named in a game's recap, and any name you type into the dashboard's search or *Compare* box. ofstats looks players up by their **public OpenFront player id**, which the lobby does not show, so a name is first sent to its name index (`/names/<name>`, and its search `/search?q=<name>` when the index shows no recent game under exactly that name) to find which account plays under it, then that account's statistics are asked for by its id; for a player whose id is already known (from a game record, a clan's member list, or - for you - OpenFront's own page) only the id is sent. And **clan tags** seen there or opened in the dashboard | `api.ofstats.io` - an independent, third-party community statistics service for public OpenFront games | while you look at a lobby, the in-game player panels, the dashboard or the recap; your own name also on OpenFront's front page (your stats card, at most once a minute) and again after each game you played (for the rank change). Without any name: the weekly clan table in the dashboard, and a reachability check each time you open the settings | to fetch public player and clan statistics and show ranks |
 | **The id of a game whose end screen you saw** (played, spectated or a replay), and **each game id you add to a tournament** in the *Tournaments* page | OpenFront's own public API (`api.openfront.io`) | when the end-of-game screen appears, then every 5 s for a minute and every 30 s after that while the game stays on screen (up to about 30 minutes), until OpenFront publishes the record; a game whose record was not published yet is asked for again when you next open an openfront.io page, for up to 24 hours. Only while the recap is switched on. Tournaments: once per game you add (or when a tournament you open or import lists it; more than 20 at once only after you click *Fetch*), two at a time and at least 400 ms apart, and again only when you press *Retry* or OpenFront asked to slow down (HTTP 429: up to 3 more tries, 2-8 s apart); a finished game's record is kept in this browser, so it is not asked for twice | to read the public record of that game |
 | **A game id you paste into the *Observer* page** (and nothing else: no name, no account) | OpenFront's own public endpoints: the server list `api.openfront.io/cluster.json?site=openfront.io` (which server runs ids with that first letter; kept 10 minutes), then that server's `/api/game/<id>/exists` and `/api/game/<id>` (the game's map, mode, player count and start time - the answer also lists the lobby's names, which the extension drops at once), and, for a game that is not running, the public record at `api.openfront.io` (to tell "over" from "not found") | when you press *Check*; with *Remind me when it starts*, again every 15 s (at most 30 minutes, until it starts or you press *Stop*; it stops by itself when the game is over, not found or an old id, and after 8 answers that cannot tell whether a game without a start time began; one reminder per game across observer tabs); once more by itself when a known start countdown ends (whatever its length) | to say whether that game is running, waiting in its lobby or over, before you open it |
 
@@ -106,7 +106,8 @@ there. Names in chat are not verified.
 
 The extension reads OpenFront's pages in your browser in order to work: player
 names, lobby settings, your username and clan tag from the page's own storage, your per-game
-public client id and public player id, and, while a game runs, who owns which
+public client id and your public player id (from the account answer OpenFront's own page
+fetched - only the id is read from it), and, while a game runs, who owns which
 part of the map and every player's name, colour and share of the land (for the
 timelapse, when it records; and, when you watch a game as a spectator, for the
 caster panel and the caster overlay - the names the game shows you, so
@@ -127,7 +128,10 @@ companion launcher, see the end of this section):
   if you have Chrome sync turned on; the developer has no access to it.
 - **`chrome.storage.local`** (this device only) - a cache of looked-up public
   statistics (10 minutes for a hit, 30 for a miss or a failed lookup; expired
-  entries are deleted when the extension's background worker starts), the clan
+  entries are deleted when the extension's background worker starts) and of
+  which account each looked-up name was matched to (6 hours), the public player
+  ids known for player names (from game records, clan member lists and your own
+  page; at most 5000 names), the clan
   hub's recruit index (for each player without a clan tag whose lookup found a
   rank: the name, percentile, games, wins, last game date and games per mode -
   at most 500 players, the most recently looked up, each dropped 60 days after

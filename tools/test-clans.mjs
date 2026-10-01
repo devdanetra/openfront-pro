@@ -313,11 +313,15 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
   const store = {
     sync: {},
     local: {
-      "ofs6:expired guy": { value: player("Expired Guy", { ratio: 2 }), expiresAt: T0 - 1000 },
-      "ofs6:fresh one": { value: player("Fresh One", { ratio: 1.8 }), expiresAt: T0 + 600000 },
-      "ofs6:[lux] tagged": { value: player("[LUX] Tagged", { ratio: 2 }), expiresAt: T0 - 1000 },
-      "ofs6:clan:LUX": { value: { found: true, tag: "LUX" }, expiresAt: T0 - 1000 },
+      "ofs7:expired guy": { value: player("Expired Guy", { ratio: 2 }), expiresAt: T0 - 1000 },
+      "ofs7:fresh one": { value: player("Fresh One", { ratio: 1.8 }), expiresAt: T0 + 600000 },
+      "ofs7:[lux] tagged": { value: player("[LUX] Tagged", { ratio: 2 }), expiresAt: T0 - 1000 },
+      "ofs7:clan:LUX": { value: { found: true, tag: "LUX" }, expiresAt: T0 - 1000 },
+      // a live name match is no player: it never seeds the recruit index
+      "ofs7:match:matched name": { value: { found: true, id: "MATCHED1", via: "games", others: 0, clear: true }, expiresAt: T0 + 600000 },
       "ofs5:older gen": { value: player("Older Gen", { ratio: 2 }), expiresAt: T0 + 600000 },
+      // ofs6 answered names, which ofstats now answers 404: "new" for everyone
+      "ofs6:stale miss": { value: { found: false, reason: "no-history" }, expiresAt: T0 + 600000 },
       tournaments: { list: [] },
     },
     full: false, // true: storage.local.set rejects like a full quota
@@ -371,6 +375,42 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
     timeline: { weeks: ["2026-W37", "2026-W38"], series: [{ clanTag: "UN", ranks: [1, 1], points: [21307, 17463] }] },
     clanOfTheWeek: { week: "2026-W37", clanTag: "UN", points: 21307 },
   };
+  // ofstats as it is now: /players/<id> answers account ids only (a name gets 404);
+  // /names/<bare name> lists the newest games under that name with any tag or case,
+  // each with the account's id and the full name it played as; /search lists
+  // accounts by their usual name and tag.
+  const H = 3600000;
+  const PLAYS = [
+    // [display name, account id, hours ago]: one row per game
+    ["Solo Ace", "SOLOACE1", 1],
+    ["[LUX] TeNa", "LUXTENA1", 2],
+    ["TeNa", "BARETENA", 1], // the bare name is somebody else
+    ["Quota Name", "QUOTANM1", 1],
+    ["Fine Name", "FINENAM1", 1],
+    // 3 of the 5 recent games under it: a clear pick
+    ["Clear Pick", "CLEARPK1", 1], ["Clear Pick", "OTHERCP1", 2], ["Clear Pick", "CLEARPK1", 3], ["Clear Pick", "CLEARPK1", 5], ["Clear Pick", "OTHERCP1", 7],
+    // three accounts; the newest played 1 game in 5: not clear
+    ["Crowd", "CROWDAA1", 1], ["Crowd", "CROWDBB1", 2], ["Crowd", "CROWDBB1", 3], ["Crowd", "CROWDCC1", 4], ["Crowd", "CROWDCC1", 5],
+    ["mixcase", "LOWERMC1", 1], ["MixCase", "UPPERMC1", 4],
+    ["Tagged One", "UNTAGGD1", 1], ["[ABC] Tagged One", "ABCTAGD1", 6],
+    ["Twin", "TWINAAA1", 1],
+    ["Rare", "RAREOTH1", 1], // "[XY] Rare" has no recent game: only the search knows it
+    ["Listed", "LISTEDXX", 1], // "Listed Only" is in the name index's account list only
+    ["France", "FRANCE99", 1], ["[FR] France", "FRANCE01", 2],
+    // plays tagged; a public free-for-all lobby (tags hidden) shows him bare
+    ["[TSI] Harry Tohs", "HARRYTS1", 1], ["[TSI] Harry Tohs", "HARRYTS1", 3],
+  ];
+  const SHARED = { france: 5000 }; // accounts per bare name, where it is not just the plays above
+  const LISTED = { "listed only": [{ publicId: "LISTED01", username: "Listed Only", gamesPlayed: 9, wins: 1, lastSeen: new Date(T0 - 90 * 86400000).toISOString() }] };
+  const PEOPLE = [
+    { type: "person", publicId: "RAREXY01", name: "Rare", clanTag: "XY", score: 50 },
+    { type: "person", publicId: "RAREOTH1", name: "Rare", clanTag: null, score: 80 },
+  ];
+  const NAME_OF = new Map([["RECID001", "[LUX] Rec Guy"], ["MEMBERID", "[IDC] Member"], ["MYSELF01", "[LUX] Me Myself"], ["RAREXY01", "[XY] Rare"], ["LISTED01", "Listed Only"], ["TWINBBB1", "Twin"], ["OTHERME1", "[ZZ] Me Myself"], ["RACEME01", "Race Me"]]);
+  for (const [name, id] of PLAYS) if (!NAME_OF.has(id)) NAME_OF.set(id, name);
+  const NO_ID_IN_ANSWER = new Set(["RECID001"]); // an answer without its own publicId
+  const low = (s) => String(s ?? "").toLowerCase();
+  const bareOf = (n) => n.replace(/^\[[A-Za-z0-9]{1,5}\]\s*/, "");
   const fakeFetch = async (url) => {
     fetched.push(String(url));
     const u = new URL(url);
@@ -382,15 +422,37 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
     if (u.hostname === "api.openfront.io" && u.pathname === "/public/game/RECGAME1") {
       return new Response(JSON.stringify({ info: { gameID: "RECGAME1", config: {}, players: [{ username: "Rec Guy", clanTag: "LUX", clientID: "c1", publicID: "RECID001", stats: {} }] } }), { status: 200 });
     }
+    if (u.hostname === "api.openfront.io" && u.pathname === "/public/game/TWINGAME") {
+      return new Response(JSON.stringify({ info: { gameID: "TWINGAME", config: {}, players: [{ username: "Twin", clanTag: null, clientID: "c2", publicID: "TWINBBB1", stats: {} }] } }), { status: 200 });
+    }
+    if (u.hostname === "api.openfront.io" && u.pathname === "/public/game/TWOMEGAM") {
+      return new Response(JSON.stringify({ info: { gameID: "TWOMEGAM", config: {}, players: [{ username: "Me Myself", clanTag: "ZZ", clientID: "c3", publicID: "OTHERME1", stats: {} }] } }), { status: 200 });
+    }
+    if (u.pathname.startsWith("/names/")) {
+      const base = decodeURIComponent(u.pathname.slice("/names/".length));
+      if (/^Down/.test(base)) return new Response("oops", { status: 502 });
+      if (base === "Race Me") await new Promise((r) => setTimeout(r, 300)); // a slow answer
+      const rows = PLAYS.filter(([n]) => low(bareOf(n)) === low(base));
+      const listed = LISTED[low(base)] ?? null;
+      if (!rows.length && !listed) return new Response('{"error":"Name not found"}', { status: 404 });
+      const games = rows
+        .map(([n, id, h], i) => ({ gameId: `n${i}`, map: "World", mode: "Free For All", date: T0 - h * H, publicId: id, username: n }))
+        .sort((a, b) => b.date - a.date);
+      const accountCount = SHARED[low(base)] ?? new Set([...rows.map((r) => r[1]), ...(listed ?? []).map((a) => a.publicId)]).size;
+      return new Response(JSON.stringify({ name: base, games, pagination: { page: 1, limit: 20, total: games.length, totalPages: 1 }, accounts: listed, accountCount }), { status: 200 });
+    }
+    if (u.pathname === "/search") {
+      const q = low(u.searchParams.get("q"));
+      return new Response(JSON.stringify({ people: PEOPLE.filter((p) => low(p.name).includes(q)), players: [], clans: [], games: [] }), { status: 200 });
+    }
     if (u.pathname.startsWith("/players/")) {
-      const name = decodeURIComponent(u.pathname.slice("/players/".length));
-      if (/^Down/.test(name)) return new Response("oops", { status: 502 });
+      const id = decodeURIComponent(u.pathname.slice("/players/".length));
+      if (!NAME_OF.has(id)) return new Response('{"error":"Player not found"}', { status: 404 });
       // ofstats' player shape, as fetchStats reads it
       return new Response(
         JSON.stringify({
-          username: name,
-          // ofstats' answer carries the player's id; the fake only gives one to "Id Learner"
-          ...(name === "Id Learner" || name === "IDLEARN1" ? { publicId: "IDLEARN1" } : {}),
+          ...(NO_ID_IN_ANSWER.has(id) ? {} : { publicId: id }),
+          username: NAME_OF.get(id),
           gamesPlayed: 120,
           wins: 30,
           lastSeen: new Date(T0 - 86400000).toISOString(),
@@ -438,9 +500,10 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
   await sleep(500); // worker start: purge, then the batched index write
 
   // ---- worker start: purge and seed ----
-  ok(!("ofs6:expired guy" in store.local) && !("ofs6:clan:LUX" in store.local) && !("ofs6:[lux] tagged" in store.local), "worker start: expired cache entries purged");
-  ok("ofs6:fresh one" in store.local, "worker start: live cache entries kept");
+  ok(!("ofs7:expired guy" in store.local) && !("ofs7:clan:LUX" in store.local) && !("ofs7:[lux] tagged" in store.local), "worker start: expired cache entries purged");
+  ok("ofs7:fresh one" in store.local && "ofs7:match:matched name" in store.local, "worker start: live cache entries kept");
   ok(!("ofs5:older gen" in store.local), "worker start: older cache generation purged");
+  ok(!("ofs6:stale miss" in store.local), "worker start: answers to name lookups (ofs6, 'new' for everyone) purged");
   ok("tournaments" in store.local, "worker start: other data untouched");
   eq((store.local.recruitIndex?.players ?? []).map((r) => r.name).sort(), ["Expired Guy", "Fresh One"], "worker start: cached untagged players seed the recruit index");
 
@@ -465,7 +528,7 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
   const bad = await ask({ type: "clanTable", week: "2026-W37&sort=x" });
   ok(bad?.found && bad.week === "2026-W38", "clanTable: a malformed week is dropped (current week instead)");
   eq(fetched.length, n, "clanTable: ...and never reaches ofstats (served from the current-week cache)");
-  ok(Object.keys(store.local).some((k) => k === "ofs6:clans:table:2026-W37"), "clanTable: cached under the cache prefix");
+  ok(Object.keys(store.local).some((k) => k === "ofs7:clans:table:2026-W37"), "clanTable: cached under the cache prefix");
 
   // ---- lookups feed the recruit index; a failed name still gets an answer ----
   const looked = await ask({ type: "lookup", usernames: ["Solo Ace", "[LUX] TeNa", "Down Guy"] });
@@ -487,7 +550,8 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
   ok(quota?.["Quota Name"]?.found === true, "full storage: the answer comes through");
   eq(quota?.["Down Again"]?.reason, "error", "full storage: a failing name still answers 'error'");
   const quota2 = await ask({ type: "lookup", usernames: ["Quota Name"] });
-  ok(quota2?.["Quota Name"]?.found && fetched.length === before + 2, "full storage: the answer is kept in memory (no second request)");
+  // /names/Quota Name, /players/QUOTANM1, /names/Down Again - and nothing more
+  ok(quota2?.["Quota Name"]?.found && fetched.length === before + 3, "full storage: the answer is kept in memory (no second request)");
   const tbl = await ask({ type: "clanTable", week: "2026-W36" });
   ok(tbl !== "TIMEOUT" && tbl?.found, "full storage: clanTable still responds");
   await sleep(450); // the index write fails quietly
@@ -497,12 +561,73 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
   const odd = await ask({ type: "lookup", usernames: [null, "Fine Name"] });
   ok(odd !== "TIMEOUT" && odd?.["Fine Name"]?.found, "lookup: an odd name does not stall the others");
 
-  // ---- player ids: learned, then used for the lookup ----
-  const byName = await ask({ type: "lookup", usernames: ["Id Learner"] });
-  eq(fetched.at(-1), "https://api.ofstats.io/players/Id%20Learner?limit=60", "ids: a name with no id yet is asked for by name");
-  eq(byName?.["Id Learner"]?.id, "IDLEARN1", "ids: the id from ofstats' answer is in the result");
-  await ask({ type: "lookup", usernames: ["Id Learner"], fresh: true });
-  eq(fetched.at(-1), "https://api.ofstats.io/players/IDLEARN1?limit=60", "ids: ...and asked for by id after that");
+  // ---- names are matched to accounts; ofstats is asked by id only ----
+  eq([looked["Solo Ace"]?.id, looked["Solo Ace"]?.match], ["SOLOACE1", { via: "games", others: 0, clear: true }], "match: the newest game under exactly the name; nobody else on it");
+  ok(fetched.includes("https://api.ofstats.io/names/Solo%20Ace") && fetched.includes("https://api.ofstats.io/players/SOLOACE1?limit=60"), "match: /names/<name>, then /players/<id>");
+  eq(looked["[LUX] TeNa"]?.id, "LUXTENA1", "match: a tagged name goes to the account that played with the tag (the bare TeNa is somebody else)");
+  ok(fetched.includes("https://api.ofstats.io/names/TeNa"), "match: the name index is asked for the bare name");
+
+  const m = await ask({ type: "lookup", usernames: ["Clear Pick", "Crowd", "MixCase", "[ABC] Tagged One", "France", "[FR] France", "Brand New", "[XY] Rare", "Listed Only"] });
+  ok(m !== "TIMEOUT", "match: answered");
+  eq([m["Clear Pick"]?.id, m["Clear Pick"]?.match], ["CLEARPK1", { via: "games", others: 1, clear: true }], "match: 3 of the 5 recent games under the name: a clear pick");
+  eq([m.Crowd?.id, m.Crowd?.match], ["CROWDAA1", { via: "games", others: 2, clear: false }], "match: the newest of three, 1 game in 5: not clear");
+  eq(m.MixCase?.id, "UPPERMC1", "match: the same case before any case");
+  eq(m["[ABC] Tagged One"]?.id, "ABCTAGD1", "match: the tag has to match too");
+  eq([m.France?.found, m.France?.reason, m.France?.accounts], [false, "shared", 5000], "match: an untagged name thousands of accounts play under answers 'shared'");
+  eq(m["[FR] France"]?.id, "FRANCE01", "match: ...the same name with a tag is matched");
+  eq([m["Brand New"]?.found, m["Brand New"]?.reason], [false, "no-history"], "match: a name nobody played under is 'new'");
+  ok(!fetched.some((f) => f.includes("search?q=Brand")), "match: ...without asking the search");
+  eq([m["[XY] Rare"]?.id, m["[XY] Rare"]?.match], ["RAREXY01", { via: "search", others: 0, clear: true }], "match: no recent game under the name: ofstats' search, same name and tag");
+  eq([m["Listed Only"]?.id, m["Listed Only"]?.match?.via], ["LISTED01", "accounts"], "match: ...or the accounts the name index lists");
+  const askedPlayers = fetched.filter((f) => f.startsWith("https://api.ofstats.io/players/")).map((f) => decodeURIComponent(f.slice("https://api.ofstats.io/players/".length).split("?")[0]));
+  ok(askedPlayers.length > 0 && askedPlayers.every((x) => NAME_OF.has(x)), `ids: /players/ is only ever asked for an account id (asked: ${askedPlayers.filter((x) => !NAME_OF.has(x)).join(", ")})`);
+
+  // the match is kept longer than the stats: a fresh lookup asks ofstats for the stats only
+  const n0 = fetched.length;
+  await ask({ type: "lookup", usernames: ["Crowd"], fresh: true });
+  eq(fetched.slice(n0), ["https://api.ofstats.io/players/CROWDAA1?limit=60"], "match: cached; a fresh lookup asks for the stats only");
+  ok("ofs7:match:crowd" in store.local && store.local["ofs7:match:crowd"].expiresAt - Date.now() > 5 * 3600000, "match: cached for hours, under the cache prefix");
+  const n0b = fetched.length;
+  await ask({ type: "lookup", usernames: ["Brand New"], fresh: true });
+  eq(fetched.slice(n0b), ["https://api.ofstats.io/names/Brand%20New"], "match: a fresh lookup asks again past a cached miss");
+
+  // an exact id beats a match: a game record says who "Twin" is
+  const twin = await ask({ type: "lookup", usernames: ["Twin"] });
+  eq(twin?.Twin?.id, "TWINAAA1", "exact: matched by name first");
+  await ask({ type: "gameRecord", gameId: "TWINGAME" });
+  await sleep(20);
+  const twin2 = await ask({ type: "lookup", usernames: ["Twin"] });
+  eq([twin2?.Twin?.id, twin2?.Twin?.match], ["TWINBBB1", undefined], "exact: a game record's id replaces the cached match");
+  ok(fetched.at(-1) === "https://api.ofstats.io/players/TWINBBB1?limit=60", "exact: ...asked for by that id");
+
+  // ---- your own id, read from OpenFront's page ----
+  eq(await ask({ type: "selfId", name: "[LUX] Me Myself", id: "bad id!" }), { ok: false }, "selfId: a malformed id is refused");
+  eq(await ask({ type: "selfId", name: "[LUX] Me Myself", id: "MYSELF01" }), { ok: true }, "selfId: answered");
+  await sleep(20);
+  const n1 = fetched.length;
+  const me = await ask({ type: "lookup", usernames: ["[LUX] Me Myself"] });
+  eq(fetched.slice(n1), ["https://api.ofstats.io/players/MYSELF01?limit=60"], "selfId: your own name goes straight to your id");
+  ok(me?.["[LUX] Me Myself"]?.found && me["[LUX] Me Myself"].match === undefined, "selfId: no name match involved");
+
+  // ---- the race: your id arrives while the first lookup of your name is still matching it ----
+  const first = ask({ type: "lookup", usernames: ["Race Me"] }); // its /names/ answer takes 300 ms
+  await sleep(50);
+  eq(await ask({ type: "selfId", name: "Race Me", id: "RACEME01" }), { ok: true }, "race: your id arrives meanwhile");
+  const second = await ask({ type: "lookup", usernames: ["Race Me"] });
+  eq(second?.["Race Me"]?.id, "RACEME01", "race: the lookup made after it goes by your id, not the name match in flight");
+  eq((await first)?.["Race Me"]?.reason, "no-history", "race: (the earlier lookup still gets its own answer)");
+  await sleep(50);
+  const third = await ask({ type: "lookup", usernames: ["Race Me"] });
+  ok(third?.["Race Me"]?.id === "RACEME01" && store.local["ofs7:race me"]?.value?.id === "RACEME01", "race: ...and the late name match does not replace it in the cache");
+
+  // ---- a lobby that hides clan tags (every public free-for-all): anyTag ----
+  const strict = await ask({ type: "lookup", usernames: ["Harry Tohs"] });
+  eq(strict?.["Harry Tohs"]?.reason, "no-history", "anyTag: without it, a bare name does not match the name played with a tag");
+  const loose = await ask({ type: "lookup", usernames: ["Harry Tohs"], anyTag: true });
+  eq([loose?.["Harry Tohs"]?.id, loose?.["Harry Tohs"]?.match], ["HARRYTS1", { via: "games", others: 0, clear: true }], "anyTag: the bare name matches it under any tag");
+  ok("ofs7:~harry tohs" in store.local && "ofs7:match:~harry tohs" in store.local && "ofs7:harry tohs" in store.local, "anyTag: answers cached apart from the strict ones");
+  const looseTagged = await ask({ type: "lookup", usernames: ["[ABC] Tagged One"], anyTag: true });
+  eq(looseTagged?.["[ABC] Tagged One"]?.id, "ABCTAGD1", "anyTag: a name shown with its tag still has to match it");
 
   const rec = await ask({ type: "gameRecord", gameId: "RECGAME1" });
   eq(rec?.players?.[0]?.publicID, "RECID001", "ids: game record read");
@@ -511,6 +636,18 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
   eq(fetched.at(-1), "https://api.ofstats.io/players/RECID001?limit=60", "ids: learned from a game record ([TAG] name -> publicID)");
   eq(recHit?.["[LUX] Rec Guy"]?.id, "RECID001", "ids: the id is in the result even when ofstats' answer has none");
 
+  const n2 = fetched.length;
+  const recLoose = await ask({ type: "lookup", usernames: ["Rec Guy"], anyTag: true });
+  eq(fetched.slice(n2), ["https://api.ofstats.io/players/RECID001?limit=60"], "anyTag: an id learned under a tag serves the bare name ([LUX] Rec Guy -> Rec Guy)");
+  ok(recLoose?.["Rec Guy"]?.found && recLoose["Rec Guy"].match === undefined, "anyTag: ...as an exact id, no name match");
+  // your own id under the bare name a tag-hiding lobby shows, and somebody else's under a tag
+  await ask({ type: "gameRecord", gameId: "TWOMEGAM" });
+  eq(await ask({ type: "selfId", name: "Me Myself", id: "MYSELF01" }), { ok: true }, "anyTag: your id noted under the bare name the lobby shows");
+  await sleep(20);
+  const n3 = fetched.length;
+  await ask({ type: "lookup", usernames: ["Me Myself"], anyTag: true });
+  eq(fetched.slice(n3), ["https://api.ofstats.io/players/MYSELF01?limit=60"], "anyTag: the bare name's own id first, not [ZZ] Me Myself's");
+
   const clan = await ask({ type: "clan", tag: "IDC" });
   eq(clan?.members?.[0]?.id, "MEMBERID", "ids: a clan member's id");
   await ask({ type: "lookup", usernames: ["[IDC] Member"] });
@@ -518,11 +655,12 @@ eq(L.compareRows({ games: 1021000 }, { games: 5 })[0].a.text, "1.0M", "compare: 
 
   await sleep(700);
   const saved = new Map(store.local.ofsPlayerIds ?? []);
-  ok(saved.get("id learner") === "IDLEARN1" && saved.get("[lux] rec guy") === "RECID001" && saved.get("[idc] member") === "MEMBERID", "ids: kept in storage.local");
+  ok(saved.get("[lux] rec guy") === "RECID001" && saved.get("[idc] member") === "MEMBERID" && saved.get("[lux] me myself") === "MYSELF01" && saved.get("twin") === "TWINBBB1", "ids: exact ids kept in storage.local");
+  ok(!saved.has("crowd") && !saved.has("solo ace") && !saved.has("[xy] rare"), "ids: name matches are not stored as exact ids");
 
   // ---- clearCache empties the recruit index too ----
   const cleared = await ask({ type: "clearCache" });
-  ok(cleared !== "TIMEOUT" && !("recruitIndex" in store.local) && !Object.keys(store.local).some((k) => k.startsWith("ofs6:")), "clearCache: cache and recruit index gone");
+  ok(cleared !== "TIMEOUT" && !("recruitIndex" in store.local) && !Object.keys(store.local).some((k) => k.startsWith("ofs7:")), "clearCache: cache and recruit index gone");
   ok("tournaments" in store.local, "clearCache: other data untouched");
   ok("ofsPlayerIds" in store.local, "clearCache: learned player ids kept (they are not cached stats)");
 }

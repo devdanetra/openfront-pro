@@ -84,13 +84,38 @@ sends a game action.
 ## Where the ranking comes from
 
 [ofstats.io](https://ofstats.io) aggregates every public OpenFront game by
-display name, which is the only key the lobby gives us: `[TAG] name` (one
-space) for a player with a clan tag, the bare name otherwise. The two are
-separate records there - the bare `TeNa` is not `[LUX] TeNa`, and is often
-somebody else - so a tagged player is always looked up with the tag (badges,
-recap, dashboard, your own card) and never falls back to the bare name.
+**account**: a player is their public OpenFront player id
+(`api.ofstats.io/players/<id>`), and a name answers 404. The lobby, though, only
+gives names: `[TAG] name` (one space) for a player with a clan tag, the bare
+name otherwise - OpenFront sends each lobby client's username, clan tag and a
+per-game client id, never the account id. So the extension finds the account:
 
-`GET https://api.ofstats.io/players/<name>` returns per-map rows with `wins` and
+- **Exactly**, where it can: your own id is read from OpenFront's page (the
+  account answer it fetches for guests and signed-in players alike), every game
+  record the recap reads lists each player's id, and a clan's member list on
+  ofstats carries its members' ids. These are remembered (up to 5000 names).
+- **By matching the name** otherwise, with ofstats' name index
+  (`/names/<name>`: the newest games played under that name, each with the
+  account and the exact `[TAG] name` it played as). The account that played
+  under exactly this name most recently wins (same case first); then the
+  index's account list, then ofstats' search. A shown tag has to match - the
+  bare `TeNa` is not `[LUX] TeNa`, and is often somebody else.
+- **Public free-for-alls hide clan tags** (OpenFront sets `disableClanTags` on
+  every one), so `[TSI] Harry Tohs` sits in that lobby as plain `Harry Tohs`.
+  The page probe reports it, and there a bare name matches the name played
+  under any tag.
+
+Checked against the ids in the records of three public games (two
+free-for-alls, one team game; 167 named players, named as their lobbies showed
+them, each game left out of the index it was matched in, as a lobby's game is):
+140 matched right, 6 wrong, 1 not found, 20 `shared` (below) - without the
+any-tag rule for hidden tags: 127 right, 12 wrong, 8 not found. Where other
+accounts play under the same name and the pick is not clear-cut (under 60% of
+the recent games under it), the badge says so with `≈`: all 122 clear picks were
+right, 18 of the 24 marked ones. A match is kept 6 hours, so a name costs the
+index request only the first time.
+
+`GET https://api.ofstats.io/players/<id>` returns per-map rows with `wins` and
 `expectedWins` — and expectedWins already accounts for how many players were in
 each lobby. So:
 
@@ -132,7 +157,9 @@ the popup):
 |---|---|
 | `hidden` | OpenFront's **Hidden Names** setting is on, so every *other* player's name is replaced on your screen with a tribe name. Nothing real is left to look up — this is the usual reason for "I only see myself". Turn it off in OpenFront settings. |
 | `guest` | A generated `Anon…` handle, used by players who never set a name. Thousands of people share each one, so no rank can belong to it. |
+| `shared` | An untagged name that 1000+ OpenFront accounts have played under - usually one the game suggests ("Peace And Love", "NAPOLEON"). Matching it to an account was right about a third of the time, so no rank is guessed. |
 | `new` | No finished public games on ofstats yet. |
+| `≈ Top 12%` | Not missing, but worth a look: the name was matched to an account while other accounts also played under it lately, and the pick is not clear-cut. The tooltip says how many. |
 | `offline` | ofstats could not be reached, or answered with an error. A failure is cached for only a minute, so that name is asked again soon (a real "no history" answer is kept for 30 minutes). |
 
 ## Where badges appear
@@ -205,8 +232,8 @@ says so.
 
 ## Deeper scouting
 
-All of these come from the same single ofstats request per player — no extra
-network traffic.
+All of these come from the same single ofstats request per player (after the
+name has been matched to an account, see above) — no extra network traffic.
 
 | Badge mark | Meaning |
 |---|---|
@@ -337,7 +364,7 @@ wordmark, next to the version number, so the logo reads "OPENFRONT PRO". If the
 header ever changes shape and the logo block cannot be found, it falls back to
 a pill after the last nav link.
 
-Each player costs the same single ofstats request as the badges (the payload
+Each player costs the same ofstats requests as the badges (the payload
 already carries everything the player sections show); the clan section
 (`/clans/<TAG>`), the weekly clan table (`/clans`) and a Compare lookup are one
 request each.
@@ -862,8 +889,10 @@ shared yours. It now uses OpenFront's own ids:
   modal's `currentClientID`, or `myPlayer().clientID()` in game; read by
   `page-probe.js`). The game record lists it per player, so the match is exact.
 - **public id** - the stable `publicID` the record prints for every player.
-  Learnt from a record matched by client id, stored locally, and used when the
-  client id is not known (a game settled later, a reloaded tab).
+  Read from OpenFront's own page (`page-probe.js`: the account answer the page
+  fetched, on a `data-ofr-me` attribute) or learnt from a record matched by
+  client id, stored locally, and used when the client id is not known (a game
+  settled later, a reloaded tab).
 - the name is the last resort, with the old rule: two matches and no clan tag to
   tell them apart means no guess.
 
@@ -1004,7 +1033,7 @@ src/vendor/         nostr-crypto.js - vendored @noble Schnorr + ECDH + SHA-256
 src/dashboard.css   dashboard, home card and settings overlay styling
 src/site-layouts.css   the three website layout templates
 src/page-themes.css    GENERATED from themes.js: OpenFront's palette per theme
-src/page-probe.js   MAIN-world probe: map preview, timelapse frames, team roster/emoji feed, overlay figures, caster feed
+src/page-probe.js   MAIN-world probe: map preview, your player id, timelapse frames, team roster/emoji feed, overlay figures, caster feed
 src/map-viewer.js   full-screen zoomable terrain view
 icons/              extension and notification icons
 sounds/alert.wav    watchlist alert

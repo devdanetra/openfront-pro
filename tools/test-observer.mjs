@@ -324,6 +324,90 @@ console.log("page probe: who is watching");
   check("no elapsedGameSeconds in the build: ticks / 10", r.caster[0]?.seconds === 300);
 }
 
+console.log("page probe: your own player id (data-ofr-me)");
+{
+  // the parts of the page the probe reads for it: the username field's and the
+  // account modal's copy of /users/@me, and the "userMeResponse" event
+  const probeSrc = src("src/page-probe.js");
+  function meProbe(els, dataset = {}) {
+    const loops = [];
+    const listeners = {};
+    const sandbox = {
+      console,
+      Map,
+      document: {
+        documentElement: { dataset },
+        querySelector: (s) => els[s] ?? null,
+        querySelectorAll: () => [],
+        addEventListener: (type, fn) => (listeners[type] = fn),
+      },
+      location: { origin: "https://openfront.io" },
+      setInterval: (fn) => loops.push(fn),
+      clearInterval: () => {},
+    };
+    sandbox.window = { postMessage: () => {} };
+    vm.createContext(sandbox);
+    vm.runInContext(probeSrc, sandbox, { filename: "page-probe.js" });
+    return { dataset, listeners, tick: () => loops.forEach((fn) => fn()), els };
+  }
+  const answer = (publicId) => ({ user: { email: "someone@example.com", discord: { id: "123" } }, player: { publicId, flares: ["x"], friends: ["F1"] } });
+  let p = meProbe({ "username-input": { userMe: answer("YCI2U8LO") } });
+  check("your id: read from the username field's account answer", p.dataset.ofrMe === "YCI2U8LO", JSON.stringify(p.dataset));
+  check("...only the id leaves it (no email, account or friends)", !/someone|example|discord|F1|flares/.test(JSON.stringify(p.dataset)), JSON.stringify(p.dataset));
+  p = meProbe({ "account-modal": { userMeResponse: answer("ACCTMDL1") } });
+  check("your id: or the account modal's", p.dataset.ofrMe === "ACCTMDL1");
+  p = meProbe({ "username-input": { userMe: false } });
+  check("signed out / no answer (userMe false): nothing published", !("ofrMe" in p.dataset));
+  p = meProbe({ "username-input": { userMe: answer("<b>x</b>") } });
+  check("a malformed id is not published", !("ofrMe" in p.dataset));
+  p = meProbe({ "username-input": { userMe: answer("FIRSTID1") } });
+  p.els["username-input"].userMe = false;
+  p.tick();
+  check("an id once read stays while the page has no answer", p.dataset.ofrMe === "FIRSTID1");
+  p.listeners.userMeResponse?.({ detail: answer("SECOND02") });
+  check("another account (userMeResponse event): the new id", p.dataset.ofrMe === "SECOND02");
+  p.els["username-input"].userMe = answer("THIRD003");
+  p.tick();
+  check("...and from the poll", p.dataset.ofrMe === "THIRD003");
+}
+
+console.log("page probe: clan tags hidden (public free-for-alls)");
+{
+  const probeSrc = src("src/page-probe.js");
+  // a join modal on screen with the server's gameConfig, or a running game
+  function run({ lobbyConfig = null, gameConfig = null }) {
+    const dataset = {};
+    const shown = { querySelectorAll: () => [{ getBoundingClientRect: () => ({ width: 10, height: 10 }) }] };
+    const modal = lobbyConfig ? { ...shown, gameConfig: lobbyConfig } : null;
+    const game = gameConfig ? { inSpawnPhase: () => false, myPlayer: () => null, config: () => ({ gameConfig: () => gameConfig, isReplay: () => false }), gameOver: () => false } : null;
+    const sandbox = {
+      console,
+      Map,
+      document: {
+        documentElement: { dataset },
+        querySelector: (s) => (s === "join-lobby-modal" ? modal : s === "player-panel" && game ? { g: game } : null),
+        querySelectorAll: (s) => (s === "join-lobby-modal" && modal ? [modal] : []),
+        addEventListener: () => {},
+      },
+      location: { origin: "https://openfront.io" },
+      setInterval: () => {},
+      clearInterval: () => {},
+    };
+    sandbox.window = { postMessage: () => {}, BOOTSTRAP_CONFIG: { assetManifest: { "maps/europe/thumbnail.webp": "/maps/europe/thumbnail.abc.webp" } } };
+    vm.createContext(sandbox);
+    vm.runInContext(probeSrc, sandbox, { filename: "page-probe.js" });
+    return { map: dataset.ofrMap ? JSON.parse(dataset.ofrMap) : null, game: dataset.ofrGame ? JSON.parse(dataset.ofrGame) : null };
+  }
+  let r = run({ lobbyConfig: { gameMap: "Europe", gameMode: "Free For All", disableClanTags: true } });
+  check("lobby: disableClanTags -> tagsHidden", r.map?.tagsHidden === true, JSON.stringify(r.map));
+  r = run({ lobbyConfig: { gameMap: "Europe", gameMode: "Team" } });
+  check("lobby: tags shown -> not hidden", r.map?.tagsHidden === false, JSON.stringify(r.map));
+  r = run({ gameConfig: { gameMode: "Free For All", disableClanTags: true } });
+  check("running game: tagsHidden from its config", r.game?.tagsHidden === true && r.game.mode === "Free For All", JSON.stringify(r.game));
+  r = run({ gameConfig: { gameMode: "Team" } });
+  check("running game: tags shown", r.game?.tagsHidden === false, JSON.stringify(r.game));
+}
+
 console.log("worker: observerCheck with a stand-in fetch");
 {
   const bg = src("src/background.js");

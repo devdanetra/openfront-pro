@@ -123,6 +123,22 @@
   // Said under a miss for an untagged name: the usual reason for "no history".
   const TAG_HINT = ' A player with a clan tag is found as "[TAG] name".';
   const TAG_SHORT = 'Clan tag? Try "[TAG] name"';
+  // ofstats keys players on their OpenFront account; the worker matches a name to
+  // one (background.js matchName). These say when that was not clear-cut.
+  function unsureText(info) {
+    const n = Number(info?.match?.others) || 0;
+    return `Matched by name: ${n > 0 ? `${n} other account${n === 1 ? "" : "s"} also played under it lately` : "other accounts play under it too"}; showing the likeliest.`;
+  }
+  // A name so many accounts play under that no stats can be tied to it.
+  function sharedState(name, info, compact = false) {
+    const n = Number(info?.accounts) || 0;
+    return stateEl("empty", hasTag(name) ? null : TAG_SHORT, {
+      title: `“${name}” is a shared name`,
+      compact,
+      hook: "ofr-dash-empty",
+      tip: `${n > 0 ? `${n.toLocaleString()} OpenFront accounts have` : "Very many OpenFront accounts have"} played under this name (often one the game suggests), so there is no telling whose stats they would be.${hasTag(name) ? "" : TAG_HINT}`,
+    });
+  }
 
   function gameUrl(id) {
     return `https://ofstats.io/game/${encodeURIComponent(id)}`;
@@ -221,12 +237,15 @@
   // username: an ofstats name, sent exactly as given (see tidyName)
   // fresh: skip the worker's cache (a "Try again" after a failed lookup, which
   // the worker would otherwise answer from its cached miss)
-  async function lookup(username, { fresh = false } = {}) {
+  // anyTag: a bare name from a lobby that hides clan tags (content.js tagsHidden),
+  // matched under any tag like the badge it was opened from
+  async function lookup(username, { fresh = false, anyTag = false } = {}) {
     const res = await chrome.runtime.sendMessage({
       type: "lookup",
       usernames: [username],
       full: true,
       ...(fresh ? { fresh: true } : {}),
+      ...(anyTag ? { anyTag: true } : {}),
     });
     return res?.[username] ?? null;
   }
@@ -398,9 +417,13 @@
     title.append(el("span", "ofr-dash-name", shownName));
     const rank = S.ranked(info);
     if (rank) {
-      const badge = el("span", "ofr-badge", topText(rank.pct));
+      // "≈": the name was matched to an account among others who play under it
+      // (background.js matchName), and the match is not clear
+      const unsure = info.match?.clear === false;
+      const badge = el("span", "ofr-badge", `${unsure ? "≈ " : ""}${topText(rank.pct)}`);
       badge.dataset.ofrKind = "percentile";
       badge.dataset.ofrBand = S.percentBand(rank.pct);
+      if (unsure) badge.title = unsureText(info);
       title.append(badge);
     }
     head.append(title);
@@ -449,7 +472,9 @@
         sec.append(
           b?.reason === "error"
             ? stateEl("error", "Enter to retry", { title: "ofstats.io unreachable", compact: true, hook: "ofr-dash-empty", tip: `Check your connection and press Enter to try again.${b.error ? `\n${b.error}` : b.status ? `\nHTTP ${b.status}` : ""}` })
-            : stateEl("empty", hasTag(other) ? null : TAG_SHORT, { title: `No public games for “${other}”`, compact: true, hook: "ofr-dash-empty", tip: `ofstats.io only counts finished public games.${hasTag(other) ? "" : TAG_HINT}` }),
+            : b?.reason === "shared"
+              ? sharedState(other, b, true)
+              : stateEl("empty", hasTag(other) ? null : TAG_SHORT, { title: `No public games for “${other}”`, compact: true, hook: "ofr-dash-empty", tip: `ofstats.io only counts finished public games.${hasTag(other) ? "" : TAG_HINT}` }),
         );
       } else {
         sec = compareSection(name, info, other, b);
@@ -1445,7 +1470,7 @@
       );
     let info = null;
     try {
-      info = await lookup(name, { fresh: retry });
+      info = await lookup(name, { fresh: retry, anyTag: currentOpts.anyTag === true });
     } catch (err) {
       if (currentName === name) failed(String(err?.message ?? err));
       return;
@@ -1459,6 +1484,10 @@
       body.replaceChildren(
         stateEl("empty", "Turn on in Settings", { title: "Lookups are off", hook: "ofr-dash-empty", tip: "Turn on rank lookups in Settings to see stats here." }),
       );
+      return;
+    }
+    if (info?.reason === "shared" && !hide) {
+      body.replaceChildren(sharedState(name, info));
       return;
     }
     // A tagged name with no history stays that: the bare name is someone else's
@@ -1553,8 +1582,9 @@
       place();
     }
     // Streamer mode changes what the card shows (your name), so turning it on
-    // re-renders at once instead of after the minute.
-    const key = `${name ?? ""}|${opts.streamer ? 1 : 0}`;
+    // re-renders at once instead of after the minute; so does your player id
+    // arriving from the page (the lookup then goes by it, not by your name).
+    const key = `${name ?? ""}|${opts.streamer ? 1 : 0}|${opts.selfId ?? ""}`;
     if (
       card.dataset.ofrFor === key &&
       Date.now() - Number(card.dataset.ofrAt ?? 0) < 60000
