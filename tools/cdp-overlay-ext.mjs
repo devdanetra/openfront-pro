@@ -75,7 +75,7 @@ const today = new Date().toDateString();
 const now = Date.now();
 await popup.evaluate(`chrome.storage.sync.set({ dataConsent: true, theme: "classic" }).then(() => chrome.storage.local.set({
   overlaySelf: { name: "[LUX] TeNa" },
-  "ofs6:[lux] tena": { value: { found: true, games: 412, wins: 61, ratedGames: 400, ratedWins: 60, expectedWins: 31.5, streak: 6 }, expiresAt: ${now} + 3600000 },
+  "ofs7:[lux] tena": { value: { found: true, games: 412, wins: 61, ratedGames: 400, ratedWins: 60, expectedWins: 31.5, streak: 6 }, expiresAt: ${now} + 3600000 },
   session: { day: ${JSON.stringify(today)}, startPct: 6.4, games: [{ won: true }, { won: false }, { won: true, pctAfter: 7.2 }] },
 })).then(() => 1)`);
 check("the popup's Tools pane has no launcher-only OBS row here", (await popup.evaluate(`document.getElementById("overlay-obs").hidden`)) === true);

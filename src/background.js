@@ -2,12 +2,13 @@
 // host_permissions instead of the page's CORS policy (ofstats sends no
 // Access-Control-Allow-Origin, so a page-context fetch is blocked).
 //
-// ofstats aggregates every public OpenFront game by display name, the only key
-// the lobby gives us: "[TAG] name" for a player with a clan tag, the bare name
-// otherwise (OFR_SCORING.statsName builds it; callers send it, this worker
-// looks up and caches whatever name it is given). It answers for nearly every
-// player who has played before: measured on a real 94-player lobby roster, 29
-// of the 32 names that were not throwaway guest handles had data.
+// Callers send a player's display name, the only key the lobby gives us: "[TAG]
+// name" for a player with a clan tag, the bare name otherwise
+// (OFR_SCORING.statsName builds it). ofstats keys players on OpenFront's public
+// player id and answers a name with 404, so this worker finds the id first:
+// exactly where it is known (a game record, a clan's member list, the viewer's own
+// id from OpenFront's page), else by matching the name to an account (matchName),
+// and caches the answer under the name.
 
 // Chat: BIP-340 signing (vendored @noble) and the small Nostr client built on it.
 importScripts("vendor/nostr-crypto.js", "nostr.js", "team.js");
@@ -23,10 +24,13 @@ const MISS_TTL_MS = 30 * 60 * 1000;
 // A failed request (network down, ofstats erroring) is not an answer: asked
 // again soon, so a badge or card does not keep saying "offline" for half an hour.
 const ERROR_TTL_MS = 60 * 1000;
+// Which account a name belongs to changes slowly: kept longer than the stats.
+const MATCH_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_CONCURRENT = 6;
-// ofs6: lookups became "[TAG] name" for tagged players; ofs5 held bare-name
-// entries (and clan members without their full name), so none is served again.
-const CACHE_PREFIX = "ofs6:";
+// ofs7: lookups go by player id (names matched to accounts); ofs6 held answers to
+// name lookups, which ofstats now answers 404 ("new" for everyone), so none is
+// served again. ofs6 had made lookups "[TAG] name" for tagged players.
+const CACHE_PREFIX = "ofs7:";
 
 const memoryCache = new Map();
 const inFlight = new Map();
@@ -152,7 +156,7 @@ chrome.storage.local
         stale.push(k);
         continue;
       }
-      if (!/^clans?:/.test(k.slice(CACHE_PREFIX.length)) && entry?.value?.found) {
+      if (!/^(clans?|match):/.test(k.slice(CACHE_PREFIX.length)) && entry?.value?.found) {
         const at = typeof entry.expiresAt === "number" ? Math.min(now, entry.expiresAt - HIT_TTL_MS) : now;
         noteRecruit(globalThis.OFR_CLAN_LOGIC?.recruitRecord(entry.value, at));
       }
@@ -189,8 +193,9 @@ async function cacheGet(key) {
 
 // Never throws: when the write fails (storage.local full - its quota is 10 MB
 // without unlimitedStorage), the answer is still kept in memory and returned.
-async function cacheSet(key, value) {
-  const ttl = value?.found ? HIT_TTL_MS : value?.reason === "error" ? ERROR_TTL_MS : MISS_TTL_MS;
+// hitTtl: how long a found answer is kept (a miss or a failure as always).
+async function cacheSet(key, value, hitTtl = HIT_TTL_MS) {
+  const ttl = value?.found ? hitTtl : value?.reason === "error" ? ERROR_TTL_MS : MISS_TTL_MS;
   const entry = { value, expiresAt: Date.now() + ttl };
   memoryCache.set(key, entry);
   try {
@@ -222,10 +227,11 @@ function pump() {
 
 // ---- player ids ---------------------------------------------------------------------------
 // ofstats keys a player on OpenFront's public player id (the publicID in a game
-// record: api.ofstats.io/players/YCI2U8LO, ofstats.io/player/YCI2U8LO). Names are
-// not unique and change; the id does not. The worker learns name -> id from every
-// game record it reads and from ofstats' own answers, and looks a player up by id
-// from then on. A name with no id yet is still asked for by name.
+// record: api.ofstats.io/players/YCI2U8LO, ofstats.io/player/YCI2U8LO) and answers
+// a name with 404. Names are not unique and change; the id does not. The worker
+// knows name -> id exactly from every game record it reads, from clan member lists
+// and from the viewer's own id (OpenFront's page holds it: the "selfId" message),
+// keeps that in storage.local, and matches any other name to an account (matchName).
 const PLAYER_IDS_KEY = "ofsPlayerIds";
 const PLAYER_IDS_CAP = 5000;
 const PLAYER_ID = /^[A-Za-z0-9]{6,16}$/;
@@ -248,9 +254,18 @@ function loadPlayerIds() {
     });
   return playerIdsLoad;
 }
-async function playerIdFor(name) {
+// anyTag: a bare name from a lobby that hides clan tags - every public free-for-all
+// does (disableClanTags), so a tagged player shows there bare. The bare name's own
+// id first (yours, read from the page under the name the lobby shows); else any tag
+// will do, as long as only one account is known under the name.
+async function playerIdFor(name, anyTag = false) {
   await loadPlayerIds();
-  return playerIds.get(String(name).toLowerCase()) ?? null;
+  const key = String(name).toLowerCase();
+  const own = playerIds.get(key) ?? null;
+  if (!anyTag || own) return own;
+  const ids = new Set();
+  for (const [k, id] of playerIds) if (k.replace(/^\[[a-z0-9]{1,5}\]\s*/, "") === key) ids.add(id);
+  return ids.size === 1 ? ids.values().next().value : null;
 }
 // name: the ofstats name, "[TAG] name" for a tagged player (OFR_SCORING.statsName)
 async function notePlayerId(name, id) {
@@ -275,21 +290,126 @@ function notePlayerIdsFrom(record) {
   }
 }
 
-async function fetchStats(username, id = null) {
+// ---- name -> account ----------------------------------------------------------------------
+// OpenFront's lobby lists names, not ids: each of its clients is a username, a clan
+// tag, a per-game client id and a few flags (GameServer.gameInfo; the same in a live
+// /api/game/<id> answer), and nothing public maps a name to an account. So a name
+// whose id is not known is matched with ofstats' name index, /names/<bare name>: the
+// newest indexed games played under that name with any tag or case, each with the
+// account's id and the full display name it played as. The latest game under exactly
+// this display name decides (same case before any case); then that answer's
+// `accounts` (listed when few accounts used the name); then /search?q=<bare name>'s
+// people with the same name and tag, the highest score first. Where the lobby hides
+// clan tags (anyTag: public free-for-alls), any tag counts as the same name.
+//
+// Tried on the 167 named players of three public games (two free-for-alls, one team
+// game), named as their lobbies showed them, against the ids in the game records,
+// each game left out of the index it was matched in (a lobby's game is not in it
+// yet): 140 right, 6 wrong, 1 not found, 20 "shared" (without anyTag: 127 right, 12
+// wrong, 8 not found). Wrong ones are names several accounts play under, so a match
+// counts the other accounts seen under the name and says whether the pick is clear:
+// nobody else, or at least CLEAR_SHARE of those recent games. All 122 clear picks
+// were right, 18 of the 24 others.
+//
+// An untagged name that SHARED_NAME_ACCOUNTS accounts or more have played under is
+// somebody's default ("France", "Peace And Love", "NAPOLEON"; matched right about a
+// third of the time): it answers "shared" rather than a stranger's rank.
+const SHARED_NAME_ACCOUNTS = 1000;
+const CLEAR_SHARE = 0.6;
+const lower = (s) => String(s ?? "").toLowerCase();
+// "[TAG] name" -> { tag, base }; anything else is a bare name
+function splitStatsName(name) {
+  const m = /^\[([A-Za-z0-9]{1,5})\]\s*(.+)$/.exec(String(name));
+  return m ? { tag: m[1], base: m[2] } : { tag: null, base: String(name) };
+}
+// The one of `list` with the greatest at(x) (the first of equals).
+function greatest(list, at) {
+  let best = null;
+  for (const x of list) if (!best || at(x) > at(best)) best = x;
+  return best;
+}
+
+// name: the display name, "[TAG] name" for a tagged player. anyTag: the name is bare
+// because the lobby hides clan tags (playerIdFor), so it matches the name played
+// under any tag. Answers { found: true, id, via, others, clear } or { found: false,
+// reason: "no-history" | "shared" | "error" }, with `accounts` (how many accounts
+// played under the bare name) when ofstats said.
+async function matchName(name, anyTag = false) {
+  const { tag, base } = splitStatsName(name);
+  const loose = anyTag && !tag;
+  const get = (url) => fetch(url, { headers: { accept: "application/json" } });
+  const res = await get(`${OFSTATS_API}/names/${encodeURIComponent(base)}`);
+  // 404: no indexed game under the name at all - a new player
+  if (res.status === 404) return { found: false, reason: "no-history" };
+  if (!res.ok) return { found: false, reason: "error", status: res.status };
+  const d = await res.json();
+  const count = Number.isFinite(d?.accountCount) ? { accounts: d.accountCount } : {};
+  if (!tag && d?.accountCount >= SHARED_NAME_ACCOUNTS) return { found: false, reason: "shared", ...count };
+
+  // the name as played: exactly this display name, or (loose) this bare name with any tag
+  const shown = (u) => (loose ? splitStatsName(u).base : String(u ?? ""));
+  const fits = (u) => lower(shown(u)) === lower(loose ? base : name);
+  const games = (Array.isArray(d?.games) ? d.games : []).filter((g) => isPlayerId(g?.publicId) && fits(g.username));
+  const listed = (Array.isArray(d?.accounts) ? d.accounts : []).filter((a) => isPlayerId(a?.publicId) && fits(a.username));
+  const seen = new Set([...games.map((g) => g.publicId), ...listed.map((a) => a.publicId)]);
+  const sameCase = games.filter((g) => shown(g.username) === (loose ? base : name));
+  let id = greatest(sameCase.length ? sameCase : games, (g) => Number(g.date) || 0)?.publicId ?? null;
+  let via = "games";
+  if (!id && listed.length) {
+    id = greatest(listed, (a) => Date.parse(a.lastSeen) || 0).publicId;
+    via = "accounts";
+  }
+  if (!id && base.length >= 2) {
+    const s = await get(`${OFSTATS_API}/search?q=${encodeURIComponent(base)}`);
+    if (!s.ok && s.status !== 404) return { found: false, reason: "error", status: s.status };
+    const found = s.ok ? await s.json() : null;
+    const people = (Array.isArray(found?.people) ? found.people : []).filter(
+      (p) => isPlayerId(p?.publicId) && lower(p.name) === lower(base) && (loose || lower(p.clanTag) === lower(tag)),
+    );
+    for (const p of people) seen.add(p.publicId);
+    id = greatest(people, (p) => Number(p.score) || 0)?.publicId ?? null;
+    via = "search";
+  }
+  if (!id) return { found: false, reason: "no-history", ...count };
+  seen.delete(id);
+  const share = games.length ? games.filter((g) => g.publicId === id).length / games.length : 0;
+  return { found: true, id, via, others: seen.size, clear: seen.size === 0 || share >= CLEAR_SHARE, ...count };
+}
+
+// matchName, cached under the name ("~" in front: any tag). fresh ("Try again")
+// asks again past a cached miss or failure, never past a match.
+async function findAccount(name, fresh = false, anyTag = false) {
+  const key = `${CACHE_PREFIX}match:${anyTag ? "~" : ""}${name.toLowerCase()}`;
+  const cached = await cacheGet(key);
+  if (cached !== undefined && !(fresh && !cached?.found)) return cached;
+  if (inFlight.has(key)) return inFlight.get(key);
+  const promise = schedule(() => matchName(name, anyTag))
+    .catch((err) => ({ found: false, reason: "error", error: String(err) }))
+    .then(async (value) => {
+      await cacheSet(key, value, MATCH_TTL_MS);
+      return value;
+    })
+    .finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
+  return promise;
+}
+
+async function fetchStats(username, id) {
   // limit=60 costs the same one request and gives head-to-head a real chance
   // of overlapping with the viewer's own recent games.
   const res = await fetch(
-    `${OFSTATS_API}/players/${encodeURIComponent(id ?? username)}?limit=60`,
+    `${OFSTATS_API}/players/${encodeURIComponent(id)}?limit=60`,
     { headers: { accept: "application/json" } },
   );
-  // 404 is the ordinary answer for a name that has never finished a public
-  // game, so it is a result, not a failure.
-  if (res.status === 404) return { found: false, reason: "no-history" };
-  if (!res.ok) return { found: false, reason: "error", status: res.status };
+  // 404 is the ordinary answer for a player who has never finished a public
+  // game, so it is a result, not a failure. (Every answer carries the id it is
+  // for: lookup() compares it with the exact id once that is known.)
+  if (res.status === 404) return { found: false, reason: "no-history", id };
+  if (!res.ok) return { found: false, reason: "error", status: res.status, id };
 
   const data = await res.json();
   const games = data?.gamesPlayed ?? 0;
-  if (games < 1) return { found: false, reason: "no-history" };
+  if (games < 1) return { found: false, reason: "no-history", id };
 
   const milestones = data.highlights?.milestones ?? {};
   const modes = Array.isArray(data.modes) ? data.modes : [];
@@ -523,28 +643,47 @@ async function lookupClan(tag) {
   return promise;
 }
 
-// Keyed and cached by name (what every caller holds); fetched by id once the
-// name's id is known.
-async function lookup(username, fresh = false) {
-  const key = `${CACHE_PREFIX}${username.toLowerCase()}`;
+// Keyed and cached by name (what every caller holds), fetched by id: the name's
+// exact id where it is known, else the account the name was matched to - and then
+// the answer says so (`match`: how, how many other accounts play under the name,
+// whether the pick is clear). anyTag: the caller's lobby or game hides clan tags,
+// so a bare name there may be anyone's under any tag (matchName); its answer is
+// cached apart ("~" in front of the name).
+async function lookup(username, fresh = false, anyTag = false) {
+  anyTag = anyTag && !splitStatsName(username).tag;
+  const key = `${CACHE_PREFIX}${anyTag ? "~" : ""}${username.toLowerCase()}`;
+  const exact = await playerIdFor(username, anyTag);
   if (!fresh) {
     const cached = await cacheGet(key);
-    if (cached !== undefined) return cached;
+    // an answer for a matched account gives way once the exact id turns up and differs
+    if (cached !== undefined && !(exact && cached?.id !== exact)) return cached;
   }
-  if (inFlight.has(key)) return inFlight.get(key);
+  // In flight per id as well: a lookup made once the exact id is known (your own,
+  // arriving from the page a moment after the first lookup of your name) does not
+  // wait for the name match still running from before it.
+  const flight = `${key}#${exact ?? ""}`;
+  if (inFlight.has(flight)) return inFlight.get(flight);
 
-  const promise = playerIdFor(username)
-    .then((id) => schedule(() => fetchStats(username, id)))
+  const promise = (exact ? Promise.resolve({ found: true, id: exact }) : findAccount(username, fresh, anyTag))
+    .then(async (account) => {
+      if (!account?.found) {
+        const { reason = "error", accounts, status, error } = account ?? {};
+        return { found: false, reason, ...(accounts != null ? { accounts } : {}), ...(status ? { status } : {}), ...(error ? { error } : {}) };
+      }
+      const value = await schedule(() => fetchStats(username, account.id));
+      return exact ? value : { ...value, match: { via: account.via, others: account.others, clear: account.clear } };
+    })
     .catch((err) => ({ found: false, reason: "error", error: String(err) }))
     .then(async (value) => {
-      if (value?.found && value.id) notePlayerId(username, value.id);
-      await cacheSet(key, value);
+      // ...and a name match the exact id overtook meanwhile is not kept over its answer
+      const now = exact ? null : await playerIdFor(username, anyTag);
+      if (!now || value?.id === now) await cacheSet(key, value);
       if (value?.found) noteRecruit(globalThis.OFR_CLAN_LOGIC?.recruitRecord(value));
       return value;
     })
-    .finally(() => inFlight.delete(key));
+    .finally(() => inFlight.delete(flight));
 
-  inFlight.set(key, promise);
+  inFlight.set(flight, promise);
   return promise;
 }
 
@@ -1224,12 +1363,22 @@ function onMessage(msg, _sender, sendResponse) {
     getSettings().then(sendResponse);
     return true;
   }
+  if (msg?.type === "selfId") {
+    // The viewer's own player id, read from OpenFront's page (page-probe.js), for
+    // the name they play under: exact, so their own lookups skip name matching.
+    // Kept here only; nothing is sent.
+    const name = typeof msg.name === "string" ? msg.name.trim() : "";
+    const ok = Boolean(name) && name.length <= 60 && isPlayerId(msg.id);
+    if (ok) notePlayerId(name, msg.id);
+    sendResponse({ ok }); // answered, so the sender's promise does not reject
+    return false;
+  }
   if (msg?.type === "lookup") {
     const usernames = Array.isArray(msg.usernames) ? msg.usernames : [];
     // one failed name answers "error" for that name; the reply always comes
     Promise.all(
       usernames.map((username) =>
-        lookup(String(username), msg.fresh === true)
+        lookup(String(username), msg.fresh === true, msg.anyTag === true)
           .catch(failure)
           .then((value) => [username, value]),
       ),

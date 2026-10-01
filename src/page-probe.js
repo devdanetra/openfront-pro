@@ -7,6 +7,9 @@
 //     to its content-hashed URL, so thumbnails cannot be guessed without it.
 //   - the lobby modal's `gameConfig` property says which map is actually
 //     selected; the DOM shows the map name only in some modes.
+//   - your own OpenFront player id, from the account answer the page fetched
+//     (guest or signed in): ofstats looks players up by it, and the lobby lists
+//     only names.
 //   - during a game, the client's GameView: the tile-ownership buffer, terrain
 //     and every player's name, colour and land share (timelapse, only while
 //     data-ofr-lapse is "on"), and my team's roster and the emoji messages
@@ -21,7 +24,7 @@
 (() => {
   // Versioned: after an extension update in an open tab the old probe is still here,
   // and a plain "already there" flag would keep the new one (and what it adds) out.
-  const VERSION = 6; // 4: stream overlay figures; 5: observer mode (caster feed, spectator/over flags); 6: spectator = not on the roster (not isSpectator()), spawn-phase clock
+  const VERSION = 7; // 4: stream overlay figures; 5: observer mode (caster feed, spectator/over flags); 6: spectator = not on the roster (not isSpectator()), spawn-phase clock; 7: your player id, hidden clan tags
   if ((window.__ofrProbeVersion ?? 0) >= VERSION) return;
   window.__ofrProbeVersion = VERSION;
   window.__ofrProbe = true;
@@ -76,6 +79,8 @@
             gameMode: config.gameMode ?? null,
             difficulty: config.difficulty ?? null,
             maxPlayers: config.maxPlayers ?? null,
+            // every public free-for-all hides clan tags: names there are bare
+            tagsHidden: config.disableClanTags === true,
           };
         }
         if (el?.selectedMap) {
@@ -164,6 +169,7 @@
       maxPlayers:
         typeof config.maxPlayers === "number" ? config.maxPlayers : null,
       bots: typeof config.bots === "number" ? config.bots : null,
+      tagsHidden: config.tagsHidden === true,
     };
     if (!payload.thumbnail) return;
 
@@ -178,6 +184,38 @@
   // here — so poll, cheaply.
   publish();
   every(publish, 1000);
+
+  // Your own OpenFront player id. The page fetches your account (/users/@me) for a
+  // guest and a signed-in player alike, hands the answer around in a
+  // "userMeResponse" event and keeps it on its username field and account modal;
+  // only player.publicId is read from it. The id is public by design - every game
+  // record lists it, profile links carry it - and ofstats keys players on it,
+  // while the lobby lists names only. It stays on the attribute until a different
+  // one turns up (another account signed in).
+  const ME_ATTR = "ofrMe";
+  const okPlayerId = (v) => typeof v === "string" && /^[A-Za-z0-9]{6,16}$/.test(v);
+  function publishMe(answer) {
+    let id = null;
+    try {
+      id = [
+        answer,
+        document.querySelector("username-input")?.userMe,
+        document.querySelector("account-modal")?.userMeResponse,
+      ].map((me) => me?.player?.publicId).find(okPlayerId) ?? null;
+    } catch {
+      // not readable in this build
+    }
+    if (id && document.documentElement.dataset[ME_ATTR] !== id) document.documentElement.dataset[ME_ATTR] = id;
+  }
+  try {
+    document.addEventListener("userMeResponse", (e) => {
+      if (window.__ofrProbeVersion === VERSION) publishMe(e?.detail);
+    });
+  } catch {
+    // no events here: the poll below still finds it
+  }
+  publishMe();
+  every(publishMe, 2000);
 
   const call = (o, m, ...a) => {
     try {
@@ -252,9 +290,11 @@
         // mid-teardown; report what we have
       }
       let mode = null;
+      let tagsHidden = false; // the game hides clan tags (every public free-for-all)
       try {
-        const m = game.config?.()?.gameConfig?.()?.gameMode;
-        if (typeof m === "string") mode = m.slice(0, 40);
+        const cfg = game.config?.()?.gameConfig?.();
+        if (typeof cfg?.gameMode === "string") mode = cfg.gameMode.slice(0, 40);
+        tagsHidden = cfg?.disableClanTags === true;
       } catch {
         // not readable in this build
       }
@@ -271,7 +311,7 @@
       } catch {
         // not readable in this build: playing, not over
       }
-      next = JSON.stringify({ running: true, spawn, alive, clientId, mode, spectator, over, replay });
+      next = JSON.stringify({ running: true, spawn, alive, clientId, mode, spectator, over, replay, tagsHidden });
     }
     if ((document.documentElement.dataset[GAME_ATTR] ?? "") !== next) {
       if (next) document.documentElement.dataset[GAME_ATTR] = next;
